@@ -143,3 +143,21 @@ rule step2_sort_celltype:
     shell:
         "mkdir -p result/step2/sorted;"
         "Rscript --vanilla script/select_celltype_mtx.R {input.mtx} {input.annot} {wildcards.ct} {output.mtx}"
+
+#####################################################
+# Step 3. Combine cells and create pseudo-bulk data #
+#####################################################
+
+rule step3:
+    input: expand("result/step3/pb/{ct}.rds", ct=celltypes)
+
+rule step3_pb_celltype:
+    input:
+        mtx = "result/step2/sorted/{ct}.mtx.gz",
+        pheno = "data/metadata_PFC_all_individuals_092520.tsv.gz"
+    output:
+        "result/step3/pb/{ct}.rds"
+    shell:
+        "mkdir -p result/step3/pb/;"
+        "Rscript --vanilla script/pseudobulk.R {input.mtx} {input.pheno} {output}"
+
