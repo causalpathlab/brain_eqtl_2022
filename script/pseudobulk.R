@@ -34,7 +34,6 @@ get.cols <- function(.data){
 .data <- fileset.list(gsub(".mtx.gz$", "", data.file))
 .cols <- get.cols(.data)
 
-
 scores <- rcpp_mmutil_compute_scores(.data$mtx, .data$row, .data$col)
 cell.scores <- setDT(scores$col)
 gene.scores <- setDT(scores$row)
@@ -58,8 +57,9 @@ indv.pheno[apoe_genotype %in% c("24","34","44"), APOE := 1] # apoe4 carrier
 c2indv <- as.data.frame(.cols[, c(1, 3)])
 pb.data <- make.cocoa(.data, ct, cell2indv = c2indv)
 
-out.indv <- data.table(sample = colnames(pb.data$sum)
-out.indv[, c("projid",celltype) := tstrsplit(`sample`,split="_")]
+out.indv <- data.table(sample = colnames(pb.data$sum))
+out.indv[, c("projid","celltype") := tstrsplit(`sample`,split="_")]
+out.indv[, projid := as.integer(projid)]
 out.indv <- left_join(out.indv, indv.pheno) %>% as.data.table()
 
 #############################
