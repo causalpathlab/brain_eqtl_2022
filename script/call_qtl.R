@@ -221,6 +221,12 @@ unlink(temp.dir, recursive=TRUE)
 
 expr.dt <- fread(cmd = paste0("tabix ", expr.file, " ", .query, " -h"))
 
+if(nrow(expr.dt) < 1) {
+    unlink(out.file)
+    fwrite(data.frame(), file=out.file, sep="\t")
+    q()
+}
+
 Y <-
     expr.dt[, 6:ncol(expr.dt)] %>%
     as.matrix() %>%
