@@ -4,7 +4,7 @@ options(stringsAsFactors = FALSE)
 ## ld.file <- "data/LD.info.txt"
 ## ld.index <- 3
 ## geno.hdr <- "result/step4/rosmap"
-## expr.file <- "result/step3/qc/Mic/Mic_PC30_all.bed.gz"
+## expr.file <- "result/step3/qc/Mic/Mic_AD_all.bed.gz"
 ## out.file <- "output.txt.gz"
 
 CIS.DIST <- 5e5 # Max distance between SNPs and a gene
@@ -63,6 +63,17 @@ subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
     return(plink)
 }
 
+.safe.lm <- function(Y, C){
+    Y.resid <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
+    Y.fitted <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
+    for(j in 1:ncol(Y)){
+        .lm <- lm(Y[, j] ~ C, na.action = "na.exclude")
+        Y.resid[,j] <- residuals(.lm)
+        Y.fitted[,j] <- fitted(.lm)
+    }
+    list(fitted = Y.fitted, residuals = Y.resid)
+}
+
 take.marginal.stat <- function(xx, yy, se.min=1e-8) {
     .xx <- scale(xx)
     .yy <- scale(yy)
@@ -113,6 +124,86 @@ take.marginal.stat <- function(xx, yy, se.min=1e-8) {
     return(out)
 }
 
+match.with.plink <- function(Y, plink){
+
+    .y.info <- data.table(y.name = rownames(Y))
+    .y.info[, y.row := 1:.N]
+
+    ny <- strsplit(.y.info$`y.name`, split="_")[[1]]
+    if(length(ny) > 2){
+        .y.info[, c("projid", "matched", "ct") := tstrsplit(`y.name`, split="_")]
+        .y.info[, projid := as.integer(projid)]
+        .y.info[, matched := as.integer(matched)]
+        .fam <- plink$FAM[, .(iid)] %>% mutate(x.row = 1:n())
+        .x.1 <- .fam %>% rename(projid = iid)
+        .x.2 <- .fam %>% rename(matched = iid)
+        .match <-
+            left_join(.y.info, .x.1, by = "projid") %>%
+            left_join(.x.2, by = "matched", suffix=c("",".matched")) %>%
+            na.omit()
+
+        X <- plink$BED
+
+        x1 <- X[.match$x.row, , drop = FALSE]
+        x0 <- X[.match$x.row.matched, , drop = FALSE]
+        ret <- list(x = x1 - x0,
+                    y = Y[.match$y.row, , drop = FALSE])
+
+    } else {
+        .y.info[, c("projid", "ct") := tstrsplit(`y.name`, split="_")]
+        .y.info[, projid := as.integer(projid)]
+        ## match individuals
+        .match <-
+            plink$FAM %>%
+            mutate(projid = as.integer(iid)) %>%
+            mutate(x.row = 1:n()) %>%
+            left_join(.y.info, by = "projid") %>%
+            na.omit()
+
+        X <- plink$BED
+
+        ret <- list(x = X[.match$x.row, , drop = FALSE],
+                    y = Y[.match$y.row, , drop = FALSE])
+    }
+
+    ############################
+    ## More Q/C to remove PC1 ##
+    ############################
+
+    xx <- apply(ret$x, 2, scale)
+    xx[is.na(xx)] <- 0
+    ret$y <- .safe.lm(ret$y, pc1$u)$residuals
+
+    return(ret)
+}
+
+run.susie <- function(X, Y){
+
+    susie.dt <- data.table()
+
+    for(k in 1:ncol(Y)){
+        yy.k <- Y[,k,drop=FALSE]
+        .susie.k <- susie(X, yy.k,
+                          L = 5,
+                          estimate_residual_variance = FALSE,
+                          coverage = .9,
+                          na.rm = TRUE,
+                          refine = TRUE)
+        susie.dt.k <-
+            data.table(theta = susie_get_posterior_mean(.susie.k),
+                       theta.sd = susie_get_posterior_sd(.susie.k),
+                       pip = susie_get_pip(.susie.k),
+                       lfsr = min(susie_get_lfsr(.susie.k)))
+        susie.dt.k[, x.col := 1:.N]
+        susie.dt.k[, y.col := k]
+        rm(.susie.k); gc()
+        susie.dt <- rbind(susie.dt, susie.dt.k)
+    }
+    return(susie.dt)
+}
+
+################################################################
+
 ld.info <- fread(ld.file)
 ld.info[, chr := as.integer(gsub("chr","",`chr`))]
 ld.info[, query := paste0(`chr`, ":", pmax(`start` - CIS.DIST, 0), "-", `stop` + - CIS.DIST)]
@@ -137,56 +228,21 @@ Y <-
 gene.info <- expr.dt[, 1:5]
 colnames(Y) <- gene.info$hgnc_symbol
 
-match.with.plink <- function(Y, plink){
-
-    .y.info <- data.table(y.name = rownames(Y))
-    .y.info[, y.row := 1:.N]
-    .y.info[, c("projid", "ct") := tstrsplit(`y.name`, split="_")]
-    .y.info[, projid := as.integer(projid)]
-
-    ## match individuals
-    .match <-
-        plink$FAM %>%
-        mutate(projid = as.integer(iid)) %>%
-        mutate(x.row = 1:n()) %>%
-        left_join(.y.info, by = "projid") %>%
-        na.omit()
-
-    X <- plink$BED
-    colnames(X) <- plink$BIM$snp.loc
-
-    list(x = X[.match$x.row, , drop = FALSE],
-         y = Y[.match$y.row, , drop = FALSE])
-}
-
 .data <- match.with.plink(Y, plink)
 
 message("Successfully parsed data: X, Y")
 
 marginal.dt <- take.marginal.stat(.data$x, .data$y)
 
-message("Marginal QTL calling")
+message("Done: Marginal QTL calling")
 
-Y <- as.matrix(.data$y)
+Y <- apply(.data$y, 2, scale)
 X <- apply(.data$x, 2, scale)
 X[is.na(X)] <- 0
 
-susie.dt <- data.table()
+susie.dt <- run.susie(X, Y)
 
-for(k in 1:ncol(Y)){
-    yy.k <- Y[,k,drop=FALSE]
-    .susie.k <- susie(X[is.finite(yy.k), , drop = FALSE],
-                      yy.k[is.finite(yy.k), , drop = FALSE])
-    susie.dt.k <-
-        data.table(theta = susie_get_posterior_mean(.susie.k),
-                   theta.sd = susie_get_posterior_sd(.susie.k),
-                   pip = susie_get_pip(.susie.k),
-                   lfsr = min(susie_get_lfsr(.susie.k)))
-    susie.dt.k[, x.col := 1:.N]
-    susie.dt.k[, y.col := k]
-    rm(.susie.k); gc()
-    susie.dt <- rbind(susie.dt, susie.dt.k)
-}
+message("Done: SuSie Estimation")
 
 gene.info[, y.col := 1:.N]
 snp.info <- plink$BIM

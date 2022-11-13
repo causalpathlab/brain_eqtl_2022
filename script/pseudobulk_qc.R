@@ -70,7 +70,8 @@ run.qc <- function(expr.mat,
             chr.loc <- which(features$chromosome_name == chr)
             x1 <- expr.mat[chr.loc, , drop = FALSE]
             x0 <- expr.mat[-chr.loc, , drop = FALSE]
-            chr.svd <- rsvd::rsvd(x0, k = num.pc)
+            x0[is.na(x0)] <- 0
+            chr.svd <- rsvd::rsvd(x0, k = pmin(num.pc, ncol(x0) - 1))
             x1.resid <- .safe.lm(t(x1), chr.svd$v)$residuals
             expr.qc[chr.loc, ] <- t(x1.resid)
         }
