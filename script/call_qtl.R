@@ -13,9 +13,9 @@ PIP.CUTOFF <- 0
 if(length(argv) < 5) q()
 ld.file <- argv[1]
 ld.index <- as.integer(argv[2])
-geno.hdr <- argv[3]     # e.g., "result/step4/rosmap"
-expr.file <- argv[4]    # e.g., "result/step3_subtype/Mic.rds"
-out.file <- argv[5]     # e.g., "output.txt.gz"
+geno.hdr <- argv[3]
+expr.file <- argv[4]
+out.file <- argv[5]
 
 temp.dir <- paste0(out.file, "_temp")
 
@@ -172,6 +172,7 @@ match.with.plink <- function(Y, plink){
 
     xx <- apply(ret$x, 2, scale)
     xx[is.na(xx)] <- 0
+    pc1 <- rsvd::rsvd(xx, k=1)
     ret$y <- .safe.lm(ret$y, pc1$u)$residuals
 
     return(ret)

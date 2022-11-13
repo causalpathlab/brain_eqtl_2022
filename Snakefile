@@ -184,6 +184,9 @@ rule step3_pb_celltype_qc:
     shell:
         "Rscript --vanilla script/pseudobulk_qc.R {input.rds} {input.feat_file} %d result/step3/qc/{wildcards.ct}"%(NPC)
 
+rule step3_rsync_up:
+    shell:
+        "rsync -argv ./result/step3 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress"
 
 ###############################
 # genotype Q/C and queue jobs #
@@ -209,3 +212,65 @@ rule step4_prepare_genetic_data:
         "--pvar {input.pvar} "
         "--psam {input.psam} "
         "--make-bed --out result/step4/rosmap"
+
+rule step4_queue:
+    input:
+        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
+               script="qtl", ct=celltypes, adj="PC50",
+               cond=["all","male","female","AD","noAD","APOE","noAPOE"]),
+        # expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
+        #        script="qtl", ct=celltypes, adj=["AD","PINE"],
+        #        cond="all")
+
+rule step4_qtl_jobs:
+    input:
+        expr="result/step3/qc/{ct}/{ct}_{adj}_{cond}.bed.gz",
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        script="jobs/step4/{script}_{ct}_{adj}_{cond}.sh"
+    run:
+        mkdir("jobs/step4/")
+        with open(output.script,"w") as fh:
+            sys.stdout=fh
+            print("""#!/bin/bash -l
+#SBATCH -J %(ADJ)s_%(COND)s_%(CELLTYPE)s
+#SBATCH -o .log
+#SBATCH -e .log
+#SBATCH -D ./
+#SBATCH -B 1
+#SBATCH -t 1:00:00
+#SBATCH --mem=8192
+#SBATCH --array=1-1703
+
+source /home/${USER}/.bashrc
+source activate general
+
+ld_file=%(LD_FILE)s
+ct=%(CELLTYPE)s
+adj=%(ADJ)s
+cond=%(COND)s
+script=%(EXE)s
+expr_file=%(EXPR_FILE)s
+
+logdir=log/${script}_${tt}_${ct}
+mkdir -p ${logdir}/
+outdir=result/step4/${script}/${adj}/${cond}/${ct}
+[ -d $outdir ] || mkdir -p $outdir
+ld_index=${SLURM_ARRAY_TASK_ID}
+
+outfile=${outdir}/${ld_index}.txt.gz
+logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
+
+[ -f $logfile ] && rm $logfile
+if ! [ -f $outfile ]; then
+    Rscript --vanilla script/call_${script}.R ${ld_file} ${ld_index} result/step4/rosmap ${expr_file} ${outfile}  >> $logfile 2>&1
+fi
+[ -f $logfile ] && rm $logfile
+"""%{"LD_FILE": input.ld, "EXE": wildcards.script, "CELLTYPE": wildcards.ct,
+     "EXPR_FILE": input.expr, "ADJ": wildcards.adj, "COND": wildcards.cond})
+
+rule step4_rsync_up:
+    shell:
+        "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
+        "rsync -argv ./result/step4 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress"
