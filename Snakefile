@@ -148,8 +148,17 @@ rule step2_sort_celltype:
 # Step 3. Combine cells and create pseudo-bulk data #
 #####################################################
 
+data_conditions = ["all","AD","noAD","APOE","noAPOE","male","female"]
+data_ext = ["bed.gz","bed.gz.tbi"]
+NPC = 50
+
 rule step3:
-    input: expand("result/step3/pb/{ct}.rds", ct=celltypes)
+    input:
+        expand("result/step3/pb/{ct}.rds", ct=celltypes),
+        expand("result/step3/qc/{ct}/{ct}_PC{pc}_{dt}.{ext}",
+               dt=data_conditions, ext=data_ext, pc=NPC, ct=celltypes),
+        expand("result/step3/qc/{ct}/{ct}_AD_all.{ext}",
+               ext=data_ext, dt=["AD","PINE"], ct=celltypes)
 
 rule step3_pb_celltype:
     input:
@@ -161,3 +170,42 @@ rule step3_pb_celltype:
         "mkdir -p result/step3/pb/;"
         "Rscript --vanilla script/pseudobulk.R {input.mtx} {input.pheno} {output}"
 
+rule step3_pb_celltype_qc:
+    input:
+        rds = "result/step3/pb/{ct}.rds",
+        feat_file = "result/step1/features_annotated_GRCh37.txt.gz"
+    output:
+        ["result/step3/qc/{ct}/{ct}_PC%d_%s.%s"%(NPC, dt, ext)
+         for dt in data_conditions
+         for ext in data_ext] +
+        ["result/step3/qc/{ct}/{ct}_%s_all.%s"%(dt, ext)
+         for ext in data_ext
+         for dt in ["AD", "PINE"]]
+    shell:
+        "Rscript --vanilla script/pseudobulk_qc.R {input.rds} {input.feat_file} %d result/step3/qc/{wildcards.ct}"%(NPC)
+
+
+###############################
+# genotype Q/C and queue jobs #
+###############################
+
+rule step4:
+    input:
+        expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+
+rule step4_prepare_genetic_data:
+    input:
+        pgen = "data/rosmap_wgs_2022/AD_WGS_20210117.pgen",
+        pvar = "data/rosmap_wgs_2022/AD_WGS_20210117.pvar",
+        psam = "data/rosmap_wgs_2022/AD_WGS_20210117.psam"
+    output:
+        bed = "result/step4/rosmap.bed",
+        bim = "result/step4/rosmap.bim",
+        fam = "result/step4/rosmap.fam"
+    shell:
+        "mkdir -p result/step4/;"
+        "plink2 --pgen {input.pgen} "
+        "--king-cutoff 0.15 "
+        "--pvar {input.pvar} "
+        "--psam {input.psam} "
+        "--make-bed --out result/step4/rosmap"
