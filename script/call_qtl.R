@@ -170,10 +170,10 @@ match.with.plink <- function(Y, plink){
     ## More Q/C to remove PC1 ##
     ############################
 
-    xx <- apply(ret$x, 2, scale)
-    xx[is.na(xx)] <- 0
-    pc1 <- rsvd::rsvd(xx, k=1)
-    ret$y <- .safe.lm(ret$y, pc1$u)$residuals
+    ## xx <- apply(ret$x, 2, scale)
+    ## xx[is.na(xx)] <- 0
+    ## pc1 <- rsvd::rsvd(xx, k=1)
+    ## ret$y <- .safe.lm(ret$y, pc1$u)$residuals
 
     return(ret)
 }
@@ -185,15 +185,17 @@ run.susie <- function(X, Y){
     for(k in 1:ncol(Y)){
         yy.k <- Y[,k,drop=FALSE]
         .susie.k <- susie(X, yy.k,
-                          L = 5,
+                          L = 10,
                           estimate_residual_variance = FALSE,
-                          coverage = .9,
+                          coverage = 0.9,
                           na.rm = TRUE,
                           refine = TRUE)
         susie.dt.k <-
             data.table(theta = susie_get_posterior_mean(.susie.k),
                        theta.sd = susie_get_posterior_sd(.susie.k),
                        pip = susie_get_pip(.susie.k),
+                       ncs = length(susie_get_cs(.susie.k)$cs),
+                       coverage = sum(susie_get_cs(.susie.k)$coverage),
                        lfsr = min(susie_get_lfsr(.susie.k)))
         susie.dt.k[, x.col := 1:.N]
         susie.dt.k[, y.col := k]
@@ -217,7 +219,6 @@ plink <- subset.plink(geno.hdr, ld.info[ld.index]$`chr`,
                       temp.dir)
 
 unlink(temp.dir, recursive=TRUE)
-
 
 expr.dt <- fread(cmd = paste0("tabix ", expr.file, " ", .query, " -h"))
 
@@ -261,7 +262,7 @@ out.dt <-
     left_join(susie.dt) %>%
     left_join(gene.info) %>%
     filter(pip > PIP.CUTOFF) %>%
-    select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`, `tss`, `tes`, `ensembl_gene_id`, `hgnc_symbol`, `beta`, `se`, `n`, `p.val`, `theta`, `theta.sd`, `pip`, `lfsr`) %>%
+    select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`, `tss`, `tes`, `ensembl_gene_id`, `hgnc_symbol`, `beta`, `se`, `n`, `p.val`, `theta`, `theta.sd`, `pip`, `coverage`, `ncs`, `lfsr`) %>%
     mutate(LD = ld.index) %>% 
     as.data.table() %>% 
     na.omit()
