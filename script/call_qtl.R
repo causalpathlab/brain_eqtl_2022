@@ -207,7 +207,7 @@ run.susie <- function(X, Y){
 
 ld.info <- fread(ld.file)
 ld.info[, chr := as.integer(gsub("chr","",`chr`))]
-ld.info[, query := paste0(`chr`, ":", pmax(`start` - CIS.DIST, 0), "-", `stop` + - CIS.DIST)]
+ld.info[, query := paste0(`chr`, ":", pmax(`start` - CIS.DIST, 0), "-", `stop` + CIS.DIST)]
 
 .query <- ld.info[ld.index, ]$query
 

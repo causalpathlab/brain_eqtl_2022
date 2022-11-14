@@ -239,8 +239,8 @@ rule step4_qtl_jobs:
 #SBATCH -e .log
 #SBATCH -D ./
 #SBATCH -B 1
-#SBATCH -t 1:00:00
-#SBATCH --mem=8192
+#SBATCH -t 2:00:00
+#SBATCH --mem=2048
 #SBATCH --array=1-1703
 
 source /home/${USER}/.bashrc
@@ -253,11 +253,12 @@ cond=%(COND)s
 script=%(EXE)s
 expr_file=%(EXPR_FILE)s
 
+ld_index=${SLURM_ARRAY_TASK_ID}
+
 logdir=log/${script}_${tt}_${ct}
 mkdir -p ${logdir}/
 outdir=result/step4/${script}/${adj}/${cond}/${ct}
 [ -d $outdir ] || mkdir -p $outdir
-ld_index=${SLURM_ARRAY_TASK_ID}
 
 outfile=${outdir}/${ld_index}.txt.gz
 logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
@@ -267,10 +268,15 @@ if ! [ -f $outfile ]; then
     Rscript --vanilla script/call_${script}.R ${ld_file} ${ld_index} result/step4/rosmap ${expr_file} ${outfile}  >> $logfile 2>&1
 fi
 [ -f $logfile ] && rm $logfile
+
 """%{"LD_FILE": input.ld, "EXE": wildcards.script, "CELLTYPE": wildcards.ct,
      "EXPR_FILE": input.expr, "ADJ": wildcards.adj, "COND": wildcards.cond})
 
 rule step4_rsync_up:
     shell:
         "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
-        "rsync -argv ./result/step4 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress"
+## "rsync -argv ./result/step4 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress"
+
+rule step4_rsync_dn:
+    shell:
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"
