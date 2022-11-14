@@ -213,16 +213,66 @@ rule step4_prepare_genetic_data:
         "--psam {input.psam} "
         "--make-bed --out result/step4/rosmap"
 
+##############################
+# When everything is done... #
+##############################
+
+rule step4_dropbox:
+    shell:
+        "rsync -argv result/step4/combined ~/Dropbox/AD430/1.Results/3.eQTL --progress"
+
+rule step4_combine:
+    input:
+        expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
+               adj=("PC"+str(NPC)), ct=celltypes,
+               cond="all")
+        # expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
+        #        adj=["AD","PINE"], ct=celltypes, cond="all"),
+        # expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
+        #        adj=("PC"+str(NPC)), ct=celltypes,
+        #        cond=["all","female","male","AD","noAD","APOE","noAPOE"])
+
+rule _step4_combine_job:
+    input:
+        dirname="result/step4/qtl/{adj}/{cond}/{ct}",
+        ldfile="data/LD.info.txt"
+    output:
+        vcf="result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
+        tbi="result/step4/combined/{adj}/{cond}/{ct}.vcf.gz.tbi"
+    shell:
+        "mkdir -p result/step4/combined/{wildcards.adj}/{wildcards.cond}; "
+        "Rscript --vanilla script/combine_qtl.R {input.dirname} {input.ldfile} {output.vcf}"
+
+rule step4_run:
+    input:
+        expand("result/step4/qtl/{adj}/{cond}/{ct}/{ld}.txt.gz",
+               ct=celltypes, adj=["AD","PINE"],
+               cond="all", ld=range(1,1704))
+
+rule _step4_run_qtl_job:
+    input:
+        expr="result/step3/qc/{ct}/{ct}_{adj}_{cond}.bed.gz",
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output: "result/step4/qtl/{adj}/{cond}/{ct}/{ld}.txt.gz"
+    shell:
+        "mkdir -p result/step4/qtl/{wildcards.adj}/{wildcards.cond}/{wildcards.ct}; "
+        "Rscript --vanilla script/call_qtl.R {input.ld} {wildcards.ld} result/step4/rosmap {input.expr} {output}"
+
+##################################################
+# When we need to run many, many jobs in cluster #
+##################################################
+
 rule step4_queue:
     input:
         expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
-               script="qtl", ct=celltypes, adj="PC50",
-               cond=["all","male","female","AD","noAD","APOE","noAPOE"]),
-        # expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
-        #        script="qtl", ct=celltypes, adj=["AD","PINE"],
-        #        cond="all")
+               script="qtl", ct=celltypes, adj=("PC"+str(NPC)),
+               cond=["all","female","male","AD","noAD","APOE","noAPOE"]),
+        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
+               script="qtl", ct=celltypes, adj=["AD","PINE"],
+               cond="all")
 
-rule step4_qtl_jobs:
+rule _step4_queue_job_file:
     input:
         expr="result/step3/qc/{ct}/{ct}_{adj}_{cond}.bed.gz",
         ld="data/LD.info.txt",
@@ -275,8 +325,8 @@ fi
 rule step4_rsync_up:
     shell:
         "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
-## "rsync -argv ./result/step4 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress"
+        "rsync -argv ./result/step4/rosmap* numbers:/home/ypark/work/brain_eqtl_2022/result/step4/ --exclude=\"*temp\" --progress --size-only"
 
 rule step4_rsync_dn:
     shell:
-        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress --size-only"
