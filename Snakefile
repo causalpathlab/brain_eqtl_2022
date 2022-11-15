@@ -160,6 +160,10 @@ rule step3:
         expand("result/step3/qc/{ct}/{ct}_AD_all.{ext}",
                ext=data_ext, dt=["AD","PINE"], ct=celltypes)
 
+rule step3_dropbox:
+    shell:
+        "rsync -argv result/step3/qc/* ~/Dropbox/AD430/1.Results/2.scRNA_pseudobulk/ --progress --exclude=\"*temp*\""
+
 rule step3_pb_celltype:
     input:
         mtx = "result/step2/sorted/{ct}.mtx.gz",
@@ -219,18 +223,15 @@ rule step4_prepare_genetic_data:
 
 rule step4_dropbox:
     shell:
-        "rsync -argv result/step4/combined ~/Dropbox/AD430/1.Results/3.eQTL --progress"
+        "rsync -argv result/step4/combined ~/Dropbox/AD430/1.Results/3.eQTL --progress --exclude=\"*.vcf\""
 
 rule step4_combine:
     input:
         expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
+               adj=["AD","PINE"], ct=celltypes, cond="all"),
+        expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
                adj=("PC"+str(NPC)), ct=celltypes,
-               cond="all")
-        # expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-        #        adj=["AD","PINE"], ct=celltypes, cond="all"),
-        # expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-        #        adj=("PC"+str(NPC)), ct=celltypes,
-        #        cond=["all","female","male","AD","noAD","APOE","noAPOE"])
+               cond=["all","AD","noAD","APOE","noAPOE","male","female"])
 
 rule _step4_combine_job:
     input:

@@ -118,14 +118,16 @@ run.qc <- function(expr.mat,
 }
 
 write.bed.gz <- function(.dt, out.file){
-    out.raw.file <- gsub(".gz$", "", out.file)
-    fwrite(.dt, out.raw.file, sep="\t", row.names = FALSE, col.names = TRUE, quote=FALSE)
-    ## Rsamtools::bgzip(out.raw.file, dest=out.file)
-    ## Rsamtools::indexTabix(out.file, format="vcf")
-    system(paste0("bgzip ", out.raw.file))
-    system(paste0("tabix -p bed ", out.file))
-    unlink(out.raw.file)
-    message("Wrote: ", out.file)
+    if(!file.exists(out.file)){
+        out.raw.file <- gsub(".gz$", "", out.file)
+        fwrite(.dt, out.raw.file, sep="\t", row.names = FALSE, col.names = TRUE, quote=FALSE)
+        ## Rsamtools::bgzip(out.raw.file, dest=out.file)
+        ## Rsamtools::indexTabix(out.file, format="vcf")
+        system(paste0("bgzip ", out.raw.file))
+        system(paste0("tabix -p bed ", out.file))
+        unlink(out.raw.file)
+        message("Wrote: ", out.file)
+    }
 }
 
 ################################################################
@@ -174,7 +176,7 @@ ad.dt <-
     .sort.cols(pheno = expr$pheno) %>%
     .sort.rows(feature.info)
 
-write.bed.gz(mu.dt, out.files$AD)
+write.bed.gz(ad.dt, out.files$AD)
 
 message("AD-specific expression matrix with no PC correction")
 
