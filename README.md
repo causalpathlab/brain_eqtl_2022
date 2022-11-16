@@ -1,4 +1,4 @@
-# Single-cell eQTL calling on 49 Brain cell types
+# Single-cell eQTL calling on 29 Brain cell types
 
 ## Step 1. Merge data across 14 different batches
 

@@ -111,18 +111,12 @@ rule step1_mtx_file:
 # Step 2. Sort cells by known annotations #
 ###########################################
 
-celltypes = ["Ast", "CAMs", "Endo",
-             "Exc-L2-3-CBLN2-LINC02306", "Exc-L3-4-RORB-CUX2", "Exc-L3-5-RORB-PLCH1",
-             "Exc-L4-5-RORB-GABRG1", "Exc-L4-5-RORB-IL1RAPL2",
-             "Exc-L5-6-RORB-LINC02196", "Exc-L5-ET", "Exc-L5-6-IT-Car3", "Exc-L5-6-NP",
-             "Exc-L6-CT", "Exc-L6-THEMIS-NFIA", "Exc-L6b", "Exc-NRGN", "Exc-RELN-CHD7", "Fib",
-             "Inh-ALCAM-TRPM3", "Inh-CUX2-MSR1", "Inh-ENOX2-SPHKAP",
-             "Inh-FBN2-EPB41L4A", "Inh-GPC5-RIT2",
-             "Inh-L1-2-PAX6-SCGN", "Inh-L1-6-LAMP5-CA13", "Inh-L1-PAX6-CA4", "Inh-L3-5-SST-MAFB",
-             "Inh-L5-6-PVALB-STON2", "Inh-L5-6-SST-TH", "Inh-L6-SST-NPY", "Inh-LAMP5-NRG1-Rosehip", "Inh-LAMP5-RELN",
-             "Inh-PTPRK-FAM19A1", "Inh-PVALB-CA8-Chandelier", "Inh-PVALB-HTR4", "Inh-PVALB-SULF1", "Inh-RYR3-TSHZ2",
-             "Inh-SGCD-PDE3A", "Inh-SORCS1-TTN", "Inh-VIP-ABI3BP", "Inh-VIP-CLSTN2", "Inh-VIP-THSD7B", "Inh-VIP-TSHZ2",
-             "Mic", "Oli", "Opc", "Per", "SMC", "Tcell"]
+celltypes = ["Ast", "Oli", "Opc", "Exc-NRGN", "Exc-L3-4-RORB-CUX2", "Exc-RELN-CHD7",
+             "Exc-L2-3-CBLN2-LINC02306", "Exc-L5-6-RORB-LINC02196", "Exc-L6-THEMIS-NFIA",
+             "Exc-L6b", "Exc-L4-5-RORB-GABRG1", "Exc-L4-5-RORB-IL1RAPL2", "Exc-L6-CT",
+             "Exc-L3-5-RORB-PLCH1", "Exc-L5-6-IT-Car3", "Exc-L5-ET", "Exc-L5-6-NP",
+             "Inh-PVALB", "Inh-SST", "Inh-VIP", "Inh-LAMP5", "Inh-PAX6", "Mic", "CAMs", "Tcell",
+             "Fib", "Endo", "Per", "SMC"]
 
 rule step2:
     input: expand("result/step2/sorted/{ct}.mtx.gz", ct=celltypes)
