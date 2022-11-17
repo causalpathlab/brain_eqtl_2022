@@ -26,18 +26,17 @@ read.dt.sorted <- function(dir.name, chr, cis.dist=5e5, num.threads=54){
         .sz <- file.info(x)$size
         if(.sz < 1024) return(data.table::data.table())
         ret <- data.table::fread(x,nThread=1,sep="\t")
-        ret[, pip := signif(pip,2)]              # remove values too small
-        ret[, theta := round(theta,4)]           #
-        ret[, theta.sd := round(theta.sd,4)]     #
-        ret[, p.val := signif(p.val,3)]          #
-        ret[, coverage := signif(coverage,2)]    #
-        ret[, lfsr := signif(lfsr,3)]            #
+        ret[, pip := signif(as.numeric(pip),2)]              # remove values too small
+        ret[, theta := round(as.numeric(theta),4)]           #
+        ret[, theta.sd := round(as.numeric(theta.sd),4)]     #
+        ret[, p.val := signif(as.numeric(p.val),3)]          #
+        ret[, coverage := signif(as.numeric(coverage),2)]    #
+        ret[, lfsr := signif(as.numeric(lfsr),3)]            #
         ## Take cis-window
         ret <- ret[snp.loc > (tss - cis.dist) & snp.loc < (tes + cis.dist)]
         ret[, alpha := NULL]                     # we can look it up later
         ret[, tss := NULL]                       # we can look it up later
         ret[, tes := NULL]                       #
-        ret[, ensembl_gene_id := NULL]           #
         ret[, LD := NULL]
         return(ret)
     }

@@ -223,12 +223,9 @@ rule step4_combine:
     input:
         expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
                adj=("PC"+str(NPC)), ct=celltypes,
-               cond=["all"])
-
-        # expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-        #        adj=["AD","PINE"], ct=celltypes, cond="all"),
-
-# ,"AD","noAD","APOE","noAPOE","male","female"
+               cond=["all","AD","noAD","APOE","noAPOE","male","female"]),
+        expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
+               adj=["AD","PINE"], ct=celltypes, cond="all")
 
 rule _step4_combine_job:
     input:
