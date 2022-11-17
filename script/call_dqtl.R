@@ -4,18 +4,20 @@ options(stringsAsFactors = FALSE)
 ## ld.file <- "data/LD.info.txt"
 ## ld.index <- 1609
 ## geno.hdr <- "result/step4/rosmap"
-## expr.file <- "result/step3/qc/Mic/Mic_AD_all.bed.gz"
+## expr.file.1 <- "result/step3/qc/Mic/Mic_PC50_AD.bed.gz"
+## expr.file.2 <- "result/step3/qc/Mic/Mic_PC50_noAD.bed.gz"
 ## out.file <- "output.txt.gz"
 
 CIS.DIST <- 5e5 # Max distance between SNPs and a gene
 PIP.CUTOFF <- 0
 
-if(length(argv) < 5) q()
+if(length(argv) < 6) q()
 ld.file <- argv[1]
 ld.index <- as.integer(argv[2])
 geno.hdr <- argv[3]
-expr.file <- argv[4]
-out.file <- argv[5]
+expr.file.1 <- argv[4]
+expr.file.2 <- argv[5]
+out.file <- argv[6]
 
 temp.dir <- paste0(out.file, "_temp")
 
@@ -169,36 +171,75 @@ match.with.plink <- function(Y, plink){
     return(ret)
 }
 
-run.susie <- function(X, Y){
+run.susie.match <- function(.data.1, .data.2, .suff){
 
     susie.dt <- data.table()
 
-    for(k in 1:ncol(Y)){
-        yy.k <- Y[,k,drop=FALSE]
-        if(sum(is.finite(yy.k)) < 10) next
-        .susie.k <- susie(X, yy.k,
-                          L = 15,
-                          estimate_residual_variance = FALSE,
-                          na.rm = TRUE,
-                          refine = TRUE)
-        .cs <- susie_get_cs(.susie.k, coverage = 0.9)
-        m <- ncol(X)
-        .factor <- apply(.susie.k$alpha, 2, which.max)[1:m]
-        .alpha.k <- apply(.susie.k$alpha, 2, max)[1:m]
-        .lfsr <- susie_get_lfsr(.susie.k)
-        susie.dt.k <-
-            data.table(theta = susie_get_posterior_mean(.susie.k)[1:m],
-                       theta.sd = susie_get_posterior_sd(.susie.k)[1:m],
-                       k = .factor,
-                       alpha = .alpha.k,
-                       pip = susie_get_pip(.susie.k)[1:m],
-                       ncs = length(.cs$cs),
-                       coverage = sum(.cs$coverage),
-                       lfsr = .lfsr[.factor],
-                       x.col = 1:m,
-                       y.col = k)
-        susie.dt <- rbind(susie.dt, susie.dt.k)
-        rm(.susie.k); gc()
+    xx1 <- apply(.data.1$x, 2, scale)
+    xx2 <- apply(.data.2$x, 2, scale)
+    xx1[is.na(xx1)] <- 0
+    xx2[is.na(xx2)] <- 0
+
+    yy1 <- .data.1$y
+    yy2 <- .data.2$y
+    m <- ncol(xx1)
+
+    for(k in 1:ncol(yy1)){
+
+        .y1 <- yy1[, k, drop = FALSE]
+        .y2 <- yy2[, k, drop = FALSE]
+        if(sum(is.finite(.y1)) < 10 || sum(is.finite(.y2)) < 10) next
+
+        .susie.1 <- susie(xx1, .y1, refine=TRUE, na.rm=TRUE)
+        .susie.2 <- susie(xx2, .y2, refine=TRUE, na.rm=TRUE)
+        .cs1 <- susie_get_cs(.susie.1, coverage=.95)
+        .cs2 <- susie_get_cs(.susie.2, coverage=.95)
+        .pip1 <- susie_get_pip(.susie.1)
+        .pip2 <- susie_get_pip(.susie.2)
+        .theta1 <- susie_get_posterior_mean(.susie.1)
+        .theta2 <- susie_get_posterior_mean(.susie.2)
+        .sd1 <- susie_get_posterior_sd(.susie.1)
+        .sd2 <- susie_get_posterior_sd(.susie.2)
+        .joint <- rep(0, ncol(xx1))
+        max.overlap <- 0
+        for(l1 in names(.cs1$cs)){
+            for(l2 in names(.cs2$cs)){
+                s1 <- .cs1$cs[[l1]]
+                s2 <- .cs2$cs[[l2]]
+                s12 <- intersect(s1, s2)
+                if(length(s12) > 0){
+                    p12 <- .pip1[s12] * .pip2[s12]
+                    max.overlap <- max(max.overlap, sum(p12))
+                    .joint[s12] <- pmax(.joint[s12], p12)
+                }
+            }
+        }
+
+        ## Genetic correlation between two conditions
+        X <- apply(rbind(xx1, xx2), 2, scale)
+        y1.hat <- X %*% .theta1
+        y2.hat <- X %*% .theta2
+        .test <- cor.test(y1.hat, y2.hat, use="pairwise.complete.obs")
+        if(is.na(.test$estimate)){
+            .test$estimate <- 0
+            .test$p.value <- 1
+        }
+        .dt.k <- list()
+        .dt.k[[paste0("theta.", .suff[1])]] <- .theta1[1:m]
+        .dt.k[[paste0("theta.", .suff[2])]] <- .theta2[1:m]
+        .dt.k[[paste0("theta.sd.", .suff[1])]] <- .sd1[1:m]
+        .dt.k[[paste0("theta.sd.", .suff[2])]] <- .sd2[1:m]
+        .dt.k[[paste0("pip.", .suff[1])]] <- .pip1[1:m]
+        .dt.k[[paste0("pip.", .suff[2])]] <- .pip2[1:m]
+        .dt.k[["joint"]] <- .joint[1:m]
+        .dt.k[["n.overlap"]] <- rep(max.overlap, m)
+        .dt.k[["r"]] <- rep(.test$estimate, m)
+        .dt.k[["r.pval"]] <- rep(.test$p.value, m)
+        .dt.k[["x.col"]] <- 1:m
+        .dt.k[["y.col"]] <- rep(k, m)
+
+        susie.dt <- rbind(susie.dt, setDT(.dt.k))
+        rm(.susie.1); rm(.susie.2); gc()
         message("Done: ", k)
     }
     return(susie.dt)
@@ -219,7 +260,8 @@ plink <- subset.plink(geno.hdr, ld.info[ld.index]$`chr`,
 
 unlink(temp.dir, recursive=TRUE)
 
-expr.dt <- fread(cmd = paste0("tabix ", expr.file, " ", .query, " -h"))
+expr.1 <- fread(cmd = paste0("tabix ", expr.file.1, " ", .query, " -h"))
+expr.2 <- fread(cmd = paste0("tabix ", expr.file.2, " ", .query, " -h"))
 
 if(nrow(expr.dt) < 1) {
     unlink(out.file)
@@ -227,30 +269,47 @@ if(nrow(expr.dt) < 1) {
     q()
 }
 
-Y <-
-    expr.dt[, 6:ncol(expr.dt)] %>%
-    as.matrix() %>%
-    t()
+stopifnot(all(expr.1$hgnc_symbol == expr.2$hgnc_symbol))
 
-gene.info <- expr.dt[, 1:5]
-colnames(Y) <- gene.info$hgnc_symbol
+take.matched.data <- function(expr.dt, plink){
 
-.data <- match.with.plink(Y, plink)
+    Y <-
+        expr.dt[, 6:ncol(expr.dt)] %>%
+        as.matrix() %>%
+        t()
+
+    gene.info <- expr.dt[, 1:5]
+    colnames(Y) <- gene.info$hgnc_symbol
+
+    match.with.plink(Y, plink)
+}
+
+.data.1 <- take.matched.data(expr.1, plink)
+.data.2 <- take.matched.data(expr.2, plink)
 
 message("Successfully parsed data: X, Y")
 
-marginal.dt <- take.marginal.stat(.data$x, .data$y)
+parse.cond <- function(.file.name){
+    ret <- tail(strsplit(.file.name, split="[_]")[[1]], 1)
+    gsub(".bed.gz","",ret)
+}
+.suff <- c(parse.cond(expr.file.1),
+           parse.cond(expr.file.2))
+
+marginal.1 <- take.marginal.stat(.data.1$x, .data.1$y)
+marginal.2 <- take.marginal.stat(.data.2$x, .data.2$y)
+
+marginal.dt <- left_join(marginal.1, marginal.2,
+                         by = c("x.col","y.col"),
+                         suffix = paste0(".",.suff))
 
 message("Done: Marginal QTL calling")
 
-Y <- apply(.data$y, 2, scale)
-X <- apply(.data$x, 2, scale)
-X[is.na(X)] <- 0
-
-susie.dt <- run.susie(X, Y)
+susie.dt <- run.susie.match(.data.1, .data.2, .suff)
 
 message("Done: SuSie Estimation")
 
+gene.info <- expr.1[, 1:5]
 gene.info[, y.col := 1:.N]
 snp.info <- plink$BIM
 snp.info[, x.col := 1:.N]
@@ -260,15 +319,13 @@ out.dt <-
     right_join(marginal.dt) %>%
     left_join(susie.dt) %>%
     left_join(gene.info) %>%
-    filter(`coverage` > .9) %>% 
     select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`,
            `tss`, `tes`, `hgnc_symbol`,
-           `beta`, `se`, `n`, `p.val`,
-           `theta`, `theta.sd`, `pip`, `k`,
-           `alpha`, `coverage`, `ncs`, `lfsr`) %>%
+           starts_with("beta"), starts_with("se"), starts_with("n"),
+           starts_with("p.val"), starts_with("theta"), starts_with("pip"),
+           `joint`, `r`, `r.pval`) %>%
     mutate(LD = ld.index) %>%
-    as.data.table() %>%
-    na.omit()
+    as.data.table()
 
 fwrite(out.dt, file=out.file, sep="\t")
 unlink(temp.dir, recursive=TRUE)
