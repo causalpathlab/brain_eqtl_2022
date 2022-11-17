@@ -307,6 +307,13 @@ message("Done: Marginal QTL calling")
 
 susie.dt <- run.susie.match(.data.1, .data.2, .suff)
 
+if(nrow(susie.dt) < 1){
+    unlink(out.file)
+    fwrite(data.frame(), file=out.file, sep="\t")
+    message("No valid gene found")
+    q()
+}
+
 message("Done: SuSie Estimation")
 
 gene.info <- expr.1[, 1:5]

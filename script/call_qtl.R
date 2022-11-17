@@ -250,7 +250,7 @@ X[is.na(X)] <- 0
 
 susie.dt <- run.susie(X, Y)
 
-if(nrow(susie.dt)){
+if(nrow(susie.dt) < 1){
     unlink(out.file)
     fwrite(data.frame(), file=out.file, sep="\t")
     message("No valid gene found")
