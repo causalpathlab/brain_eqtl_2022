@@ -2,9 +2,9 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 1609
+## ld.index <- 127
 ## geno.hdr <- "result/step4/rosmap"
-## expr.file <- "result/step3/qc/Mic/Mic_AD_all.bed.gz"
+## expr.file <- "result/step3/qc/SMC/SMC_PC50_all.bed.gz"
 ## out.file <- "output.txt.gz"
 
 CIS.DIST <- 5e5 # Max distance between SNPs and a gene
@@ -224,6 +224,7 @@ expr.dt <- fread(cmd = paste0("tabix ", expr.file, " ", .query, " -h"))
 if(nrow(expr.dt) < 1) {
     unlink(out.file)
     fwrite(data.frame(), file=out.file, sep="\t")
+    message("No valid gene found")
     q()
 }
 
@@ -248,6 +249,13 @@ X <- apply(.data$x, 2, scale)
 X[is.na(X)] <- 0
 
 susie.dt <- run.susie(X, Y)
+
+if(nrow(susie.dt)){
+    unlink(out.file)
+    fwrite(data.frame(), file=out.file, sep="\t")
+    message("No valid gene found")
+    q()
+}
 
 message("Done: SuSie Estimation")
 

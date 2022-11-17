@@ -12,7 +12,7 @@ library(dplyr)
 ld.info <- fread(ld.file)
 ld.info[, ld.idx := 1:.N]
 
-read.dt.sorted <- function(dir.name, chr, num.threads=54){
+read.dt.sorted <- function(dir.name, chr, cis.dist=5e5, num.threads=54){
     require(data.table)
     .idx <- which(ld.info$chr == chr | ld.info$chr == paste0("chr",chr))
     .files <- paste0(dir.name, "/", .idx, ".txt.gz")
@@ -32,7 +32,9 @@ read.dt.sorted <- function(dir.name, chr, num.threads=54){
         ret[, p.val := signif(p.val,3)]          #
         ret[, coverage := signif(coverage,2)]    #
         ret[, lfsr := signif(lfsr,3)]            #
-        ret <- ret[pip >= 1e-3 & abs(theta) > 0] # ignore too small pip
+        ## Take cis-window
+        ret <- ret[snp.loc > (tss - cis.dist) & snp.loc < (tes + cis.dist)]
+        ret[, alpha := NULL]                     # we can look it up later
         ret[, tss := NULL]                       # we can look it up later
         ret[, tes := NULL]                       #
         ret[, ensembl_gene_id := NULL]           #
