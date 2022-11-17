@@ -1,7 +1,7 @@
 argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
-## expr.file <- "result/step3/pb/Exc-L3-5-RORB-PLCH1.rds"
+## expr.file <- "result/step3/pb/Mic.rds"
 ## feature.file <- "result/step1/features_annotated_GRCh37.txt.gz"
 ## NPC <- 50
 ## out.dir <- "temp/Mic"
@@ -27,7 +27,9 @@ library(rsvd)
     Y.resid <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
     Y.fitted <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
     for(j in 1:ncol(Y)){
-        .lm <- lm(Y[, j] ~ C, na.action = "na.exclude")
+        y.j <- Y[, j]
+        if(sum(is.finite(y.j)) < 2) next
+        .lm <- lm(y.j ~ C, na.action = "na.exclude")
         Y.resid[,j] <- residuals(.lm)
         Y.fitted[,j] <- fitted(.lm)
     }
@@ -36,16 +38,19 @@ library(rsvd)
 
 .quantile.norm <- function(.mat) {
     stopifnot(is.matrix(.mat))
-    ngenes <- nrow(.mat)
-    qq <- qnorm((1:ngenes)/(ngenes + 1))
-    .rows <- rownames(.mat)
     ret <- .mat
     for(k in 1:ncol(ret)){
-        ret[order(ret[,k]), k] <- qq
+        x.k <- .mat[, k]
+        .pos.k <- which(is.finite(x.k))
+        x.k.valid <- x.k[.pos.k]
+        ngenes <- length(x.k.valid)
+        if(ngenes < 1) next
+        qq <- qnorm((1:ngenes)/(ngenes + 1))
+        x.k.valid[order(x.k.valid)] <- qq
+        ret[.pos.k] <- x.k.valid
     }
     return(ret)
 }
-
 
 run.qc <- function(expr.mat,
                    feature.info,
@@ -54,11 +59,14 @@ run.qc <- function(expr.mat,
 
     if(do.quantile.norm){
         expr.mat <- .quantile.norm(expr.mat)
+        message("Finished Quantile Norm ")
     }
 
     features <- data.table(row=rownames(expr.mat))
     features[, c("ensembl_gene_id", "hgnc_symbol") := tstrsplit(`row`, split="_")]
     features <- left_join(features, feature.info)
+
+    message(nrow(features), " features")
 
     if(num.pc > 0){
         expr.qc <- matrix(NA, nrow(expr.mat), ncol(expr.mat))
@@ -66,7 +74,7 @@ run.qc <- function(expr.mat,
         colnames(expr.qc) <- colnames(expr.mat)
 
         ## adjust confounding effects
-        for(chr in 1:22) {
+        for(chr in c(1:22, "X", "Y")) {
             chr.loc <- which(features$chromosome_name == chr)
             x1 <- expr.mat[chr.loc, , drop = FALSE]
             x0 <- expr.mat[-chr.loc, , drop = FALSE]
@@ -74,6 +82,7 @@ run.qc <- function(expr.mat,
             chr.svd <- rsvd::rsvd(x0, k = pmin(num.pc, ncol(x0) - 1))
             x1.resid <- .safe.lm(t(x1), chr.svd$v)$residuals
             expr.qc[chr.loc, ] <- t(x1.resid)
+            message("Finished Confounder Adjustment in Chr", chr)
         }
         return(expr.qc)
     } else {
@@ -130,6 +139,15 @@ write.bed.gz <- function(.dt, out.file){
     }
 }
 
+## Remove genes with too few expression values
+## - we would consider zero expression is missing
+filter.mat <- function(.mat, .sum, missing.cutoff = 1, missing.rate = 0.8) {
+    .row.missing.rate <- apply(t(.sum) < missing.cutoff, 2, mean)
+    .qc <- .mat
+    .qc[.sum < missing.cutoff] <- NA
+    .qc[.row.missing.rate < missing.rate, , drop = FALSE]
+}
+
 ################################################################
 
 .mkdir(out.dir)
@@ -160,8 +178,10 @@ expr <- readRDS(expr.file)
 
 message("Read expression data")
 
+mu.qc <- filter.mat(expr$PB$mu, expr$PB$sum)
+
 mu.mat <-
-    run.qc(expr$PB$mu, feature.info, NPC, TRUE) %>% 
+    run.qc(mu.qc, feature.info, NPC, TRUE) %>% 
     .sort.cols(pheno = expr$pheno)
 
 mu.dt <- mu.mat %>% 
@@ -172,7 +192,8 @@ write.bed.gz(mu.dt, out.files$mu)
 message("Average expression matrix with PC correction, ", NPC)
 
 ad.dt <-
-    run.qc(expr$AD$resid.mu, feature.info, 0, TRUE) %>%
+    filter.mat(expr$AD$resid.mu, expr$PB$sum) %>% 
+    run.qc(feature.info, 0, TRUE) %>%
     .sort.cols(pheno = expr$pheno) %>%
     .sort.rows(feature.info)
 
@@ -212,7 +233,8 @@ message("Built condition-specific expression matrices after PC correction")
 
 knn.info <- setDT(expr$PINE$knn)
 
-run.qc(expr$PINE$delta, feature.info, 0, TRUE) %>% 
+filter.mat(expr$PINE$delta, abs(expr$PINE$sum.delta)) %>% 
+    run.qc(feature.info, 0, TRUE) %>% 
     .sort.col.pairs(knn.info) %>%
     .sort.rows(feature.info) %>%
     write.bed.gz(out.files$PINE)

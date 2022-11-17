@@ -184,7 +184,7 @@ rule step3_pb_celltype_qc:
 
 rule step3_rsync_up:
     shell:
-        "rsync -argv ./result/step3 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress"
+        "rsync -argv ./result/step3 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress --size-only"
 
 ###############################
 # genotype Q/C and queue jobs #

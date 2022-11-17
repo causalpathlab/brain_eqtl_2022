@@ -2,9 +2,9 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 3
+## ld.index <- 1609
 ## geno.hdr <- "result/step4/rosmap"
-## expr.file <- "result/step3/qc/Mic/Mic_AD_all.bed.gz"
+## expr.file <- "result/step3/qc/Ast/Ast_AD_all.bed.gz"
 ## out.file <- "output.txt.gz"
 
 CIS.DIST <- 5e5 # Max distance between SNPs and a gene
@@ -166,15 +166,6 @@ match.with.plink <- function(Y, plink){
                     y = Y[.match$y.row, , drop = FALSE])
     }
 
-    ############################
-    ## More Q/C to remove PC1 ##
-    ############################
-
-    ## xx <- apply(ret$x, 2, scale)
-    ## xx[is.na(xx)] <- 0
-    ## pc1 <- rsvd::rsvd(xx, k=1)
-    ## ret$y <- .safe.lm(ret$y, pc1$u)$residuals
-
     return(ret)
 }
 
@@ -185,19 +176,25 @@ run.susie <- function(X, Y){
     for(k in 1:ncol(Y)){
         yy.k <- Y[,k,drop=FALSE]
         .susie.k <- susie(X, yy.k,
-                          L = 10,
+                          L = 15,
                           estimate_residual_variance = FALSE,
-                          coverage = 0.9,
                           na.rm = TRUE,
                           refine = TRUE)
+        .cs <- susie_get_cs(.susie.k, coverage = 0.9)
+        m <- ncol(X)
+        .factor <- apply(.susie.k$alpha, 2, which.max)[1:m]
+        .alpha.k <- apply(.susie.k$alpha, 2, max)[1:m]
+        .lfsr <- susie_get_lfsr(.susie.k)
         susie.dt.k <-
-            data.table(theta = susie_get_posterior_mean(.susie.k),
-                       theta.sd = susie_get_posterior_sd(.susie.k),
-                       pip = susie_get_pip(.susie.k),
-                       ncs = length(susie_get_cs(.susie.k)$cs),
-                       coverage = sum(susie_get_cs(.susie.k)$coverage),
-                       lfsr = min(susie_get_lfsr(.susie.k)))
-        susie.dt.k[, x.col := 1:.N]
+            data.table(theta = susie_get_posterior_mean(.susie.k)[1:m],
+                       theta.sd = susie_get_posterior_sd(.susie.k)[1:m],
+                       k = .factor,
+                       alpha = .alpha.k,
+                       pip = susie_get_pip(.susie.k)[1:m],
+                       ncs = length(.cs$cs),
+                       coverage = sum(.cs$coverage),
+                       lfsr = .lfsr[.factor])
+        susie.dt.k[, x.col := 1:m]
         susie.dt.k[, y.col := k]
         rm(.susie.k); gc()
         susie.dt <- rbind(susie.dt, susie.dt.k)
@@ -261,10 +258,14 @@ out.dt <-
     right_join(marginal.dt) %>%
     left_join(susie.dt) %>%
     left_join(gene.info) %>%
-    filter(pip > PIP.CUTOFF) %>%
-    select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`, `tss`, `tes`, `ensembl_gene_id`, `hgnc_symbol`, `beta`, `se`, `n`, `p.val`, `theta`, `theta.sd`, `pip`, `coverage`, `ncs`, `lfsr`) %>%
-    mutate(LD = ld.index) %>% 
-    as.data.table() %>% 
+    filter(coverage >= .9) %>%
+    select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`,
+           `tss`, `tes`, `hgnc_symbol`,
+           `beta`, `se`, `n`, `p.val`,
+           `theta`, `theta.sd`, `pip`, `k`,
+           `alpha`, `coverage`, `ncs`, `lfsr`) %>%
+    mutate(LD = ld.index) %>%
+    as.data.table() %>%
     na.omit()
 
 fwrite(out.dt, file=out.file, sep="\t")
