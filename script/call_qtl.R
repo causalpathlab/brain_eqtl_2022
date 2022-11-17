@@ -4,7 +4,7 @@ options(stringsAsFactors = FALSE)
 ## ld.file <- "data/LD.info.txt"
 ## ld.index <- 1609
 ## geno.hdr <- "result/step4/rosmap"
-## expr.file <- "result/step3/qc/Ast/Ast_AD_all.bed.gz"
+## expr.file <- "result/step3/qc/Mic/Mic_AD_all.bed.gz"
 ## out.file <- "output.txt.gz"
 
 CIS.DIST <- 5e5 # Max distance between SNPs and a gene
@@ -193,11 +193,12 @@ run.susie <- function(X, Y){
                        pip = susie_get_pip(.susie.k)[1:m],
                        ncs = length(.cs$cs),
                        coverage = sum(.cs$coverage),
-                       lfsr = .lfsr[.factor])
-        susie.dt.k[, x.col := 1:m]
-        susie.dt.k[, y.col := k]
-        rm(.susie.k); gc()
+                       lfsr = .lfsr[.factor],
+                       x.col = 1:m,
+                       y.col = k)
         susie.dt <- rbind(susie.dt, susie.dt.k)
+        rm(.susie.k); gc()
+        message("Done: ", k)
     }
     return(susie.dt)
 }
@@ -258,7 +259,7 @@ out.dt <-
     right_join(marginal.dt) %>%
     left_join(susie.dt) %>%
     left_join(gene.info) %>%
-    filter(coverage >= .9) %>%
+    filter(`coverage` > .9) %>% 
     select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`,
            `tss`, `tes`, `hgnc_symbol`,
            `beta`, `se`, `n`, `p.val`,
