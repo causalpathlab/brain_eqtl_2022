@@ -324,4 +324,4 @@ rule step4_rsync_up:
 
 rule step4_rsync_dn:
     shell:
-        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress --size-only"
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"

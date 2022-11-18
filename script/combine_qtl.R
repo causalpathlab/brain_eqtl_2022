@@ -47,6 +47,7 @@ read.dt.sorted <- function(dir.name, chr, cis.dist=5e5, num.threads=54){
     .dt <- do.call(what=rbind, .dt.list)
     rm(.dt.list)
     gc()
+    if(nrow(.dt) < 1) return(data.table())
     .dt.order <- .dt[, do.call(order, .SD), .SDcols=c("#chromosome_name", "snp.loc")]
     as.data.table(.dt[.dt.order])
 }
