@@ -1,17 +1,17 @@
 argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
-tf.target.ct.file <- "result/step5/tf_target_celltype.txt.gz"
-tf.name <- "MEF2A"
-geno.hdr <- "result/step4/rosmap"
-expr.file <- "result/step5/expr/Mic.bed.gz"
-pca.file <- "result/step5/expr/Mic.pca.rds"
-out.hdr <- "output"
+## tf.target.ct.file <- "result/step5/tf_target_celltype.txt.gz"
+## tf.name <- "MEF2A"
+## geno.hdr <- "result/step4/rosmap"
+## expr.file <- "result/step5/expr/Mic.bed.gz"
+## pca.file <- "result/step5/expr/Mic.pca.rds"
+## out.hdr <- "output"
 
 if(length(argv) != 6) q()
 
 tf.target.ct.file <- argv[1] # e.g., "result/step5/tf_target_celltype.txt.gz"
-tf <- argv[2]                # e.g., "MEF2A"
+tf.name <- argv[2]           # e.g., "MEF2A"
 geno.hdr <- argv[3]          # e.g., "result/step4/rosmap"
 expr.file <- argv[4]         # e.g., "result/step5/expr/Mic.bed.gz"
 pca.file <- argv[5]          # e.g., "result/step5/expr/Mic.pca.rds"

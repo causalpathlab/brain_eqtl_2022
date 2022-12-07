@@ -336,7 +336,7 @@ rule step5:
 rule step5_:
     input:
         rd = "data/markers.eTFset.RData",
-        feat = "result/step1/features_annotated_GRCh37.txt.gz"   
+        feat = "result/step1/features_annotated_GRCh37.txt.gz"
     output:
         full = "result/step5/tf_target_celltype.txt.gz",
         key = "result/step5/tf_celltype.txt.gz"
@@ -359,3 +359,48 @@ rule step5_pb_celltype:
         "mkdir -p result/step5;"
         "Rscript --vanilla script/pseudobulk_qc_nopca.R {input.rds} {input.feat_file} {output.bed};"
         "Rscript --vanilla script/pseudobulk_pca.R {input.rds} {output.pca};"
+
+rule step5_queue:
+    input:
+        KEY= "result/step5/tf_celltype.txt.gz",
+        TF_TARGET = "result/step5/tf_target_celltype.txt.gz",
+        geno = expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
+        expr = expand("result/step5/expr/{ct}.bed.gz",ct=celltypes),
+        pca = expand("result/step5/expr/{ct}.pca.rds",ct=celltypes)
+    output:
+        script="jobs/step5/run.sh"
+    run:
+        mkdir("jobs/step5")
+        with open(output.script,"w") as fh:
+            sys.stdout=fh
+            print("""#!/bin/bash -l
+#SBATCH -o .log
+#SBATCH -e .log
+#SBATCH -D ./
+#SBATCH -B 1
+#SBATCH -t 2:00:00
+#SBATCH --mem=4096
+#SBATCH --array=1-296
+
+tf=${SLURM_ARRAY_TASK_ID}
+cmd=$(gzip -cd %(KEY)s | head -n ${tf} | tail -n1 | awk -vTF_TARGET=%(TF_TARGET)s '{ tf=$1; ct=$2; data="result/step5/expr/"; output="result/step5/trans/"; print "Rscript --vanilla %(EXE)s %(TF_TARGET)s" FS tf FS "%(GENO)s" FS (data ct ".bed.gz") FS (data ct ".pca.rds") FS (output ct "/" tf); }')
+exec $cmd
+"""%{"KEY": input.KEY, "TF_TARGET": input.TF_TARGET, "GENO": "result/step4/rosmap", "EXE": "script/call_mediating_tf_target.R"})
+
+rule step5_rsync_up:
+    shell:
+        "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
+        "rsync -argv ./result/step5 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress --size-only"
+
+rule step5_run_:
+    input:
+        linking = "result/step5/tf_target_celltype.txt.gz",
+        geno = expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
+        expr = "result/step5/expr/{ct}.bed.gz",
+        pca = "result/step5/expr/{ct}.pca.rds"
+    output:
+        data = "result/step5/trans/{ct}/{tf}.data.gz",
+        stat = "result/step5/trans/{ct}/{tf}.stat.gz"
+    shell:
+        "mkdir -p result/step5/trans/{wildcards.ct};"
+        "Rscript --vanilla script/call_mediating_tf_target.R {input.linking} {wildcards.tf} result/step4/rosmap {input.expr} {input.pca} result/step5/trans/{wildcards.ct}/{wildcards.tf}"
