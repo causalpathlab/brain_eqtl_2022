@@ -325,3 +325,37 @@ rule step4_rsync_up:
 rule step4_rsync_dn:
     shell:
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"
+
+###################################
+# trans-eQTL mediated by cis-eQTL #
+###################################
+
+rule step5:
+    shell: "echo \"trans-eQTL mediated by cis-eQTL\""
+
+rule step5_:
+    input:
+        rd = "data/markers.eTFset.RData",
+        feat = "result/step1/features_annotated_GRCh37.txt.gz"   
+    output:
+        full = "result/step5/tf_target_celltype.txt.gz",
+        key = "result/step5/tf_celltype.txt.gz"
+    shell:
+        "mkdir -p result/step5/; "
+        "Rscript --vanilla script/parse_tf_target_list.R {input.rd} {input.feat} {output.full} {output.key}"
+
+rule step5_pb:
+    input:
+        expand("result/step5/expr/{ct}.{ext}", ct=celltypes, ext=["bed.gz","pca.rds"])
+
+rule step5_pb_celltype:
+    input:
+        rds = "result/step3/pb/{ct}.rds",
+        feat_file = "result/step1/features_annotated_GRCh37.txt.gz"
+    output:
+        bed = "result/step5/expr/{ct}.bed.gz",
+        pca = "result/step5/expr/{ct}.pca.rds"
+    shell:
+        "mkdir -p result/step5;"
+        "Rscript --vanilla script/pseudobulk_qc_nopca.R {input.rds} {input.feat_file} {output.bed};"
+        "Rscript --vanilla script/pseudobulk_pca.R {input.rds} {output.pca};"
