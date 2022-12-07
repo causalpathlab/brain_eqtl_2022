@@ -393,7 +393,10 @@ for(k in 1:nrow(targets)){
     Y <- .safe.lm(Y0, uu)$residuals
     rownames(Y) <- rownames(Y0)
 
-    .data.k <- data.table(target=as.numeric(Y), tf=as.numeric(M),
+    .data.k <- data.table(target=as.numeric(Y),
+                          tf=as.numeric(M),
+                          target0=as.numeric(Y0),
+                          tf0=as.numeric(M0),
                           tf.name = tf.name,
                           target.name = tgt.info$target)
 
