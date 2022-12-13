@@ -258,6 +258,57 @@ rule _step4_run_qtl_job:
 # When we need to run many, many jobs in cluster #
 ##################################################
 
+TRAITS = [tr.split(".")[0] for tr in
+          list_files("data/gwas/",
+                     pattern=".bed.gz.tbi",
+                     full_name = False)]
+
+rule _step4_queue_gwas_job_file:
+    input:
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        script="jobs/step4/gwas_{trait}.sh"
+    run:
+        mkdir("jobs/step4/")
+        with open(output.script,"w") as fh:
+            sys.stdout=fh
+            print("""#!/bin/bash -l
+#SBATCH -J %(TRAIT)s
+#SBATCH -o .log
+#SBATCH -e .log
+#SBATCH -D ./
+#SBATCH -B 1
+#SBATCH -t 2:00:00
+#SBATCH --mem=2048
+#SBATCH --array=1-1703
+
+source /home/${USER}/.bashrc
+source activate general
+
+ld_file=%(LD_FILE)s
+trait=%(TRAIT)s
+script=%(EXE)s
+gwas_file=data/gwas/%(TRAIT)s.bed.gz
+
+ld_index=${SLURM_ARRAY_TASK_ID}
+
+logdir=log/${script}_${trait}
+mkdir -p ${logdir}/
+outdir=result/step4/gwas/${trait}
+[ -d $outdir ] || mkdir -p $outdir
+
+outfile=${outdir}/${ld_index}.txt.gz
+logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
+
+[ -f $logfile ] && rm $logfile
+if ! [ -f $outfile ]; then
+    Rscript --vanilla script/call_gwas_susie.R ${ld_file} ${ld_index} result/step4/rosmap ${gwas_file} ${outfile}  >> $logfile 2>&1
+fi
+[ -f $logfile ] && rm $logfile
+
+"""%{"LD_FILE": input.ld, "TRAIT": wildcards.trait})
+
 rule step4_queue:
     input:
         expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
@@ -265,9 +316,10 @@ rule step4_queue:
                cond=["all","female","male","AD","noAD","APOE","noAPOE"]),
         expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
                script="qtl", ct=celltypes, adj=["AD","PINE"],
-               cond="all")
+               cond="all"),
+        expand("jobs/step4/gwas_{trait}.sh", trait=TRAITS)
 
-rule _step4_queue_job_file:
+rule _step4_queue_qtl_job_file:
     input:
         expr="result/step3/qc/{ct}/{ct}_{adj}_{cond}.bed.gz",
         ld="data/LD.info.txt",
@@ -378,7 +430,7 @@ rule step5_queue:
 #SBATCH -e .log
 #SBATCH -D ./
 #SBATCH -B 1
-#SBATCH -t 2:00:00
+#SBATCH -t 4:00:00
 #SBATCH --mem=4096
 #SBATCH --array=1-296
 
@@ -391,6 +443,14 @@ rule step5_rsync_up:
     shell:
         "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
         "rsync -argv ./result/step5 numbers:/home/ypark/work/brain_eqtl_2022/result/ --exclude=\"*temp\" --progress --size-only"
+
+rule step5_rsync_dn:
+    shell:
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step5/trans ./result/step5/ --exclude=\"*temp\" --progress --size-only"
+
+rule step5_dropbox:
+    shell:
+        "rsync -argv result/step5/trans ~/Dropbox/AD430/1.Results/3.eQTL/ --progress"
 
 rule step5_run_:
     input:
