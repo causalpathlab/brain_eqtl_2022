@@ -177,10 +177,11 @@ take.matrix <- function(x, remove.cols, fill = 0) {
 X <- .plink$BED[, gwas.snps$x.col]
 R <- fast.cov(X, X)
 
-n.gwas <- pmax(nrow(.plink$BED), 1e4) ## usually conservative choice
+n.gwas <- nrow(.plink$BED) ## Scale down GWAS to eQTL samples...
 Z.gwas <- take.matrix(gwas.beta, 1, 0)/take.matrix(gwas.se, 1, 1)
 
-.susie <- susie_rss(Z.gwas, R, n.gwas)
+.susie <- susie_rss(Z.gwas, R, n.gwas, max_iter=1000, r_tol=1e-4, verbose=TRUE,
+                    estimate_prior_method="simple", L=25, refine=TRUE)
 .cs <- susie_get_cs(.susie, coverage = 0.9)
 m <- ncol(X)
 .factor <- apply(.susie$alpha, 2, which.max)[1:m]

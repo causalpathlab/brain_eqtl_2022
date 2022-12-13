@@ -280,8 +280,8 @@ rule _step4_queue_gwas_job_file:
 #SBATCH -e .log
 #SBATCH -D ./
 #SBATCH -B 1
-#SBATCH -t 2:00:00
-#SBATCH --mem=2048
+#SBATCH -t 4:00:00
+#SBATCH --mem=4096
 #SBATCH --array=1-1703
 
 source /home/${USER}/.bashrc
