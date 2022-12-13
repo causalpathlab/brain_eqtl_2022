@@ -183,6 +183,7 @@ Z.gwas <- take.matrix(gwas.beta, 1, 0)/take.matrix(gwas.se, 1, 1)
 .susie <- susie_rss(Z.gwas, R, n.gwas)
 .cs <- susie_get_cs(.susie, coverage = 0.9)
 m <- ncol(X)
+.factor <- apply(.susie.k$alpha, 2, which.max)[1:m]
 .lfsr <- susie_get_lfsr(.susie)
 
 susie.dt <-
@@ -191,6 +192,7 @@ susie.dt <-
                pip = susie_get_pip(.susie)[1:m],
                ncs = length(.cs$cs),
                coverage = sum(.cs$coverage),
+               k = .factor,
                lfsr = .lfsr[.factor],
                x.col = gwas.snps$x.col)
 
