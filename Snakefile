@@ -266,11 +266,12 @@ TRAITS = [tr.split(".")[0] for tr in
 rule _step4_queue_gwas_job_file:
     input:
         ld="data/LD.info.txt",
-        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
+        exe="script/call_gwas_susie.R"
     output:
-        script="jobs/step4/gwas_{trait}.sh"
+        script="jobs/step4_gwas/{trait}.sh"
     run:
-        mkdir("jobs/step4/")
+        mkdir("jobs/step4_gwas/")
         with open(output.script,"w") as fh:
             sys.stdout=fh
             print("""#!/bin/bash -l
@@ -303,11 +304,11 @@ logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
 
 [ -f $logfile ] && rm $logfile
 if ! [ -f $outfile ]; then
-    Rscript --vanilla script/call_gwas_susie.R ${ld_file} ${ld_index} result/step4/rosmap ${gwas_file} ${outfile}  >> $logfile 2>&1
+    Rscript --vanilla ${script} ${ld_file} ${ld_index} result/step4/rosmap ${gwas_file} ${outfile}  >> $logfile 2>&1
 fi
 [ -f $logfile ] && rm $logfile
 
-"""%{"LD_FILE": input.ld, "TRAIT": wildcards.trait})
+"""%{"LD_FILE": input.ld, "TRAIT": wildcards.trait, "EXE": input.exe})
 
 rule step4_queue:
     input:
@@ -317,7 +318,7 @@ rule step4_queue:
         expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
                script="qtl", ct=celltypes, adj=["AD","PINE"],
                cond="all"),
-        expand("jobs/step4/gwas_{trait}.sh", trait=TRAITS)
+        expand("jobs/step4_gwas/{trait}.sh", trait=TRAITS)
 
 rule _step4_queue_qtl_job_file:
     input:
@@ -376,6 +377,7 @@ rule step4_rsync_up:
 
 rule step4_rsync_dn:
     shell:
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/gwas ./result/step4/ --exclude=\"*temp\" --progress;"
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"
 
 ###################################
