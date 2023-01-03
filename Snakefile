@@ -280,8 +280,8 @@ rule _step4_queue_gwas_job_file:
 #SBATCH -e .log
 #SBATCH -D ./
 #SBATCH -B 1
-#SBATCH -t 4:00:00
-#SBATCH --mem=16384
+#SBATCH -t 1:00:00
+#SBATCH --mem=2048
 #SBATCH --array=1-1703
 
 source /home/${USER}/.bashrc
@@ -309,6 +309,11 @@ fi
 [ -f $logfile ] && rm $logfile
 
 """%{"LD_FILE": input.ld, "TRAIT": wildcards.trait, "EXE": input.exe})
+
+# rule step4_gwas_run:
+#     input:
+#     output: "result/step4/gwas/{gwas}/{jobid}.txt.gz"
+#     shell: "Rscript --vanilla ${script} ${ld_file} ${ld_index} result/step4/rosmap ${gwas_file} ${outfile}  >> $logfile 2>&1"
 
 rule step4_queue:
     input:

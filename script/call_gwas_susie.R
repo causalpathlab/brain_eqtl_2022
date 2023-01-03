@@ -180,14 +180,14 @@ R <- fast.cov(X, X)
 n.gwas <- nrow(.plink$BED) ## Scale down GWAS to eQTL samples...
 Z.gwas <- take.matrix(gwas.beta, 1, 0)/take.matrix(gwas.se, 1, 1)
 
-.susie <- susie_rss(Z.gwas, R, n.gwas,
+.susie <- susie_rss(Z.gwas, R,
                     L=25,
                     max_iter=200,
                     verbose=TRUE,
                     track_fit=FALSE,
                     check_input=FALSE,
                     check_prior=FALSE,
-                    refine=TRUE)
+                    refine=FALSE) # refinement was too slow
 
 message("Successfully finished SUSIE")
 
