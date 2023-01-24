@@ -211,15 +211,22 @@ rule step4_prepare_genetic_data:
         "--psam {input.psam} "
         "--make-bed --out result/step4/rosmap"
 
+TRAITS = [tr.split(".")[0] for tr in
+          list_files("data/gwas/",
+                     pattern=".bed.gz.tbi",
+                     full_name = False)]
+
 ##############################
 # When everything is done... #
 ##############################
 
 rule step4_dropbox:
     shell:
+        "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
+        "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
         "rsync -argv result/step4/combined ~/Dropbox/AD430/1.Results/3.eQTL --progress --exclude=\"*.vcf\""
 
-rule step4_combine:
+rule step4_combine_qtl:
     input:
         expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
                adj=("PC"+str(NPC)), ct=celltypes,
@@ -227,7 +234,7 @@ rule step4_combine:
         expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
                adj=["AD","PINE"], ct=celltypes, cond="all")
 
-rule _step4_combine_job:
+rule _step4_combine_qtl_job:
     input:
         dirname="result/step4/qtl/{adj}/{cond}/{ct}",
         ldfile="data/LD.info.txt"
@@ -238,7 +245,7 @@ rule _step4_combine_job:
         "mkdir -p result/step4/combined/{wildcards.adj}/{wildcards.cond}; "
         "Rscript --vanilla script/combine_qtl.R {input.dirname} {input.ldfile} {output.vcf}"
 
-rule step4_run:
+rule step4_run_qtl:
     input:
         expand("result/step4/qtl/{adj}/{cond}/{ct}/{ld}.txt.gz",
                ct=celltypes, adj=["AD","PINE"],
@@ -254,14 +261,65 @@ rule _step4_run_qtl_job:
         "mkdir -p result/step4/qtl/{wildcards.adj}/{wildcards.cond}/{wildcards.ct}; "
         "Rscript --vanilla script/call_qtl.R {input.ld} {wildcards.ld} result/step4/rosmap {input.expr} {output}"
 
+rule step4_combine_gwas:
+    input:
+        expand("result/step4/gwas/{trait}.vcf.gz",trait = TRAITS),
+        expand("result/step4/gwas/{trait}.vcf.gz.tbi",trait = TRAITS)
+
+rule _step4_combine_gwas_job:
+    input:
+        dirname="result/step4/gwas/{trait}",
+        ldfile="data/LD.info.txt"
+    output:
+        vcf="result/step4/gwas/{trait}.vcf.gz",
+        tbi="result/step4/gwas/{trait}.vcf.gz.tbi"
+    shell:
+        "mkdir -p result/step4/gwas/;"
+        "Rscript --vanilla script/combine_gwas.R {input.dirname} {input.ldfile} {output.vcf}"
+
+rule step4_run_gwas:
+    input:
+        expand("result/step4/gwas/{trait}/{ld}.txt.gz",
+               trait = TRAITS,
+               ld = range(1,1704))
+
+rule _step4_run_gwas_job:
+    input:
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output: "result/step4/gwas/{trait}/{ld}.txt.gz"
+    shell: "Rscript --vanilla script/call_gwas_susie.R {input.ld} {wildcards.ld} result/step4/rosmap data/gwas/{wildcards.trait}.bed.gz {output}"
+
+rule step4_run_twas:
+    input:
+        expand("result/step4/twas/{cond}/{ld}.txt.gz",
+               cond = ["all","AD","noAD","male","female","APOE","noAPOE"],
+               ld = range(1,1704))
+
+rule _step4_run_twas_job:
+    input:
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/twas/{cond}/{ld}.txt.gz"
+    shell:
+        "mkdir -p result/step4/twas/{wildcards.cond}; "
+        "Rscript --vanilla script/call_twas_coloc.R {input.ld} {wildcards.ld} result/step4/rosmap result/step4/gwas result/step4/combined/PC50/{wildcards.cond} {output}"
+
+
 ##################################################
 # When we need to run many, many jobs in cluster #
 ##################################################
 
-TRAITS = [tr.split(".")[0] for tr in
-          list_files("data/gwas/",
-                     pattern=".bed.gz.tbi",
-                     full_name = False)]
+rule step4_queue:
+    input:
+        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
+               script="qtl", ct=celltypes, adj=("PC"+str(NPC)),
+               cond=["all","female","male","AD","noAD","APOE","noAPOE"]),
+        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
+               script="qtl", ct=celltypes, adj=["AD","PINE"],
+               cond="all"),
+        expand("jobs/step4_gwas/{trait}.sh", trait=TRAITS)
 
 rule _step4_queue_gwas_job_file:
     input:
@@ -281,7 +339,7 @@ rule _step4_queue_gwas_job_file:
 #SBATCH -D ./
 #SBATCH -B 1
 #SBATCH -t 1:00:00
-#SBATCH --mem=2048
+#SBATCH --mem=4096
 #SBATCH --array=1-1703
 
 source /home/${USER}/.bashrc
@@ -309,21 +367,6 @@ fi
 [ -f $logfile ] && rm $logfile
 
 """%{"LD_FILE": input.ld, "TRAIT": wildcards.trait, "EXE": input.exe})
-
-# rule step4_gwas_run:
-#     input:
-#     output: "result/step4/gwas/{gwas}/{jobid}.txt.gz"
-#     shell: "Rscript --vanilla ${script} ${ld_file} ${ld_index} result/step4/rosmap ${gwas_file} ${outfile}  >> $logfile 2>&1"
-
-rule step4_queue:
-    input:
-        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
-               script="qtl", ct=celltypes, adj=("PC"+str(NPC)),
-               cond=["all","female","male","AD","noAD","APOE","noAPOE"]),
-        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
-               script="qtl", ct=celltypes, adj=["AD","PINE"],
-               cond="all"),
-        expand("jobs/step4_gwas/{trait}.sh", trait=TRAITS)
 
 rule _step4_queue_qtl_job_file:
     input:
@@ -384,6 +427,9 @@ rule step4_rsync_dn:
     shell:
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/gwas ./result/step4/ --exclude=\"*temp\" --progress;"
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"
+
+
+
 
 ###################################
 # trans-eQTL mediated by cis-eQTL #

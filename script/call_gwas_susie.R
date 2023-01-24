@@ -2,9 +2,9 @@ options(stringsAsFactors = FALSE)
 argv <- commandArgs(trailingOnly = TRUE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 10
+## ld.index <- 657
 ## geno.hdr <- "result/step4/rosmap"
-## gwas.file <- "data/gwas//umass_als.bed.gz"
+## gwas.file <- "data/gwas/bentham_sle.bed.gz"
 ## out.file <- "output.txt.gz"
 
 if(length(argv) < 5) q()
@@ -141,13 +141,25 @@ gwas.flip[a2 == plink.a1 & a1 == plink.a2, flip := -1]
 gwas.dt <- gwas.dt %>%
     left_join(gwas.flip) %>%
     na.omit() %>%
-    mutate(beta.qc = beta * flip)
+    mutate(beta.qc = beta * flip) %>%
+    as.data.table()
+
+## handle very small p-value and SE
+p.val.min <- 1e-100
+z.abs.max <- qnorm(p.val.min * 2, lower.tail = FALSE)
+gwas.dt[`p` < p.val.min & `se` <= 0, `se` := abs(`beta`)/z.abs.max]
 
 gwas.snps <-
     gwas.flip[, .(snp.loc, x.col, plink.a1, plink.a2)] %>%
     unique() %>%
     arrange(snp.loc) %>%
     as.data.table()
+
+if(nrow(gwas.snps) < 1){
+    fwrite(data.table(), out.file)
+    unlink(temp.dir, recursive=TRUE)
+    q()
+}
 
 .dcast.snps <- function(.dt, f, value.var, fill=0) {
     dcast(.dt, f, value.var=value.var, fun.aggregate = mean, fill = fill) %>%
@@ -179,6 +191,13 @@ R <- fast.cov(X, X)
 
 n.gwas <- nrow(.plink$BED) ## Scale down GWAS to eQTL samples...
 Z.gwas <- take.matrix(gwas.beta, 1, 0)/take.matrix(gwas.se, 1, 1)
+
+## avoid extreme z-score
+z.lb <- max(-20, quantile(Z.gwas, .01, na.rm=TRUE))
+z.ub <- min(20, quantile(Z.gwas, .99, na.rm=TRUE))
+
+Z.gwas[Z.gwas < z.lb] <- z.lb
+Z.gwas[Z.gwas > z.ub] <- z.ub
 
 .susie <- susie_rss(Z.gwas, R,
                     L=25,
