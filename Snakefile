@@ -222,6 +222,8 @@ TRAITS = [tr.split(".")[0] for tr in
 
 rule step4_dropbox:
     shell:
+        "mkdir -p ~/Dropbox/AD430/1.Results/5.TWAS;"
+        "rsync -argv result/step4/twas/TWAS_*.txt.gz* ~/Dropbox/AD430/1.Results/5.TWAS/;"
         "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
         "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
         "rsync -argv result/step4/combined ~/Dropbox/AD430/1.Results/3.eQTL --progress --exclude=\"*.vcf\""
@@ -306,6 +308,18 @@ rule _step4_run_twas_job:
         "mkdir -p result/step4/twas/{wildcards.cond}; "
         "Rscript --vanilla script/call_twas_coloc.R {input.ld} {wildcards.ld} result/step4/rosmap result/step4/gwas result/step4/combined/PC50/{wildcards.cond} {output}"
 
+
+rule step4_combine_twas:
+    input:
+        expand("result/step4/twas/TWAS_{cond}.txt.gz",
+               cond = ["all","AD","noAD","male","female","APOE","noAPOE"])
+
+rule _step4_combine_twas:
+    output:
+        "result/step4/twas/TWAS_{cond}.txt.gz"
+    shell:
+        "mkdir -p result/step4/twas; "
+        "cat result/step4/twas/{wildcards.cond}/*.gz | gzip -cd | awk 'NR == 1 {{ print \"#\" $0 }} NR > 1 && $1 != \"trait\" {{ print $0 }}' | gzip -c > {output}"
 
 ##################################################
 # When we need to run many, many jobs in cluster #
