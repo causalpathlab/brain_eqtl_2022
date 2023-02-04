@@ -47,7 +47,7 @@ library(rsvd)
         if(ngenes < 1) next
         qq <- qnorm((1:ngenes)/(ngenes + 1))
         x.k.valid[order(x.k.valid)] <- qq
-        ret[.pos.k] <- x.k.valid
+        ret[.pos.k, k] <- x.k.valid
     }
     return(ret)
 }
@@ -55,7 +55,7 @@ library(rsvd)
 run.qc <- function(expr.mat,
                    feature.info,
                    num.pc = NPC,
-                   do.quantile.norm = TRUE){
+                   do.quantile.norm = FALSE){
 
     if(do.quantile.norm){
         expr.mat <- .quantile.norm(expr.mat)
@@ -78,6 +78,7 @@ run.qc <- function(expr.mat,
             chr.loc <- which(features$chromosome_name == chr)
             x1 <- expr.mat[chr.loc, , drop = FALSE]
             x0 <- expr.mat[-chr.loc, , drop = FALSE]
+            x0 <- apply(x0, 2, scale)
             x0[is.na(x0)] <- 0
             chr.svd <- rsvd::rsvd(x0, k = pmin(num.pc, ncol(x0) - 1))
             x1.resid <- .safe.lm(t(x1), chr.svd$v)$residuals
@@ -178,10 +179,10 @@ expr <- readRDS(expr.file)
 
 message("Read expression data")
 
-mu.qc <- filter.mat(expr$PB$mu, expr$PB$sum)
+mu.qc <- filter.mat(expr$PB$ln.mu, expr$PB$sum)
 
 mu.mat <-
-    run.qc(mu.qc, feature.info, NPC, TRUE) %>% 
+    run.qc(mu.qc, feature.info, NPC, FALSE) %>% 
     .sort.cols(pheno = expr$pheno)
 
 mu.dt <- mu.mat %>% 
@@ -192,8 +193,8 @@ write.bed.gz(mu.dt, out.files$mu)
 message("Average expression matrix with PC correction, ", NPC)
 
 ad.dt <-
-    filter.mat(expr$AD$resid.mu, expr$PB$sum) %>% 
-    run.qc(feature.info, 0, TRUE) %>%
+    filter.mat(expr$AD$resid.ln.mu, expr$PB$sum) %>% 
+    run.qc(feature.info, 0, FALSE) %>%
     .sort.cols(pheno = expr$pheno) %>%
     .sort.rows(feature.info)
 
@@ -233,8 +234,8 @@ message("Built condition-specific expression matrices after PC correction")
 
 knn.info <- setDT(expr$PINE$knn)
 
-filter.mat(expr$PINE$delta, abs(expr$PINE$sum.delta)) %>% 
-    run.qc(feature.info, 0, TRUE) %>% 
+filter.mat(expr$PINE$ln.delta, abs(expr$PINE$sum.delta)) %>% 
+    run.qc(feature.info, 0, FALSE) %>% 
     .sort.col.pairs(knn.info) %>%
     .sort.rows(feature.info) %>%
     write.bed.gz(out.files$PINE)

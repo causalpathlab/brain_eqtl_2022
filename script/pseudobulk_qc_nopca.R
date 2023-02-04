@@ -16,22 +16,6 @@ library(dplyr)
 
 `%&%` <- function(a,b) paste0(a,b)
 
-.quantile.norm <- function(.mat) {
-    stopifnot(is.matrix(.mat))
-    ret <- .mat
-    for(k in 1:ncol(ret)){
-        x.k <- .mat[, k]
-        .pos.k <- which(is.finite(x.k))
-        x.k.valid <- x.k[.pos.k]
-        ngenes <- length(x.k.valid)
-        if(ngenes < 1) next
-        qq <- qnorm((1:ngenes)/(ngenes + 1))
-        x.k.valid[order(x.k.valid)] <- qq
-        ret[.pos.k] <- x.k.valid
-    }
-    return(ret)
-}
-
 .sort.cols <- function(.mat, pheno) {
     .dt <- data.table(col = colnames(.mat))
     .dt[, c("projid", "ct") := tstrsplit(`col`, split="_")]
@@ -89,10 +73,8 @@ expr <- readRDS(expr.file)
 
 message("Read expression data")
 
-mu.qc <- filter.mat(expr$PB$mu, expr$PB$sum)
-
 mu.mat <- 
-    .quantile.norm(mu.qc) %>% 
+    filter.mat(expr$PB$ln.mu, expr$PB$sum) %>% 
     .sort.cols(pheno = expr$pheno)
 
 mu.dt <- mu.mat %>% 

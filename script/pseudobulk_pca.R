@@ -26,7 +26,7 @@ library(dplyr)
         if(ngenes < 1) next
         qq <- qnorm((1:ngenes)/(ngenes + 1))
         x.k.valid[order(x.k.valid)] <- qq
-        ret[.pos.k] <- x.k.valid
+        ret[.pos.k, k] <- x.k.valid
     }
     return(ret)
 }
@@ -53,13 +53,11 @@ expr <- readRDS(expr.file)
 
 message("Read expression data")
 
-mu.qc <- filter.mat(expr$PB$mu, expr$PB$sum)
-
 mu.mat <-
-    .quantile.norm(mu.qc) %>%
+    filter.mat(expr$PB$mu, expr$PB$sum) %>% 
     .sort.cols(pheno = expr$pheno)
 
-X <- scale(t(mu.mat))
+X <- apply(t(mu.mat), 2, scale)
 X[is.na(X)] <- 0
 .svd <- rsvd::rsvd(X, k = 100)
 

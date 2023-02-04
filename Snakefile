@@ -467,6 +467,11 @@ rule step5_pb:
     input:
         expand("result/step5/expr/{ct}.{ext}", ct=celltypes, ext=["bed.gz","pca.rds"])
 
+rule step5_dropbox_expr:
+    shell:
+        "mkdir -p ~/Dropbox/AD430/1.Results/2.scRNA_uncorrected;"
+        "rsync -argv result/step5/expr/* ~/Dropbox/AD430/1.Results/2.scRNA_uncorrected/ --progress"
+
 rule step5_pb_celltype:
     input:
         rds = "result/step3/pb/{ct}.rds",

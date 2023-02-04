@@ -179,8 +179,7 @@ run.susie <- function(X, Y){
         .susie.k <- susie(X, yy.k,
                           L = 15,
                           estimate_residual_variance = FALSE,
-                          na.rm = TRUE,
-                          refine = TRUE)
+                          na.rm = TRUE)
         .cs <- susie_get_cs(.susie.k, coverage = 0.9)
         m <- ncol(X)
         .factor <- apply(.susie.k$alpha, 2, which.max)[1:m]
