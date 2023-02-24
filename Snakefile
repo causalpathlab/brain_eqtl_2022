@@ -142,17 +142,17 @@ rule step2_sort_celltype:
 # Step 3. Combine cells and create pseudo-bulk data #
 #####################################################
 
-data_conditions = ["all","AD","noAD","APOE","noAPOE","male","female"]
+data_conditions = ["allIndv_noPC","allIndv_allPC","allIndv_selectedPC",
+                   "AD_selectedPC","noAD_selectedPC",
+                   "male_selectedPC","female_selectedPC"]
 data_ext = ["bed.gz","bed.gz.tbi"]
-NPC = 50
+NPC = 75
 
 rule step3:
     input:
         expand("result/step3/pb/{ct}.rds", ct=celltypes),
-        expand("result/step3/qc/{ct}/{ct}_PC{pc}_{dt}.{ext}",
-               dt=data_conditions, ext=data_ext, pc=NPC, ct=celltypes),
-        expand("result/step3/qc/{ct}/{ct}_AD_all.{ext}",
-               ext=data_ext, dt=["AD","PINE"], ct=celltypes)
+        expand("result/step3/qc/{ct}/{ct}_{dt}.{ext}",
+               dt=data_conditions, ext=data_ext, ct=celltypes)
 
 rule step3_dropbox:
     shell:
@@ -173,14 +173,11 @@ rule step3_pb_celltype_qc:
         rds = "result/step3/pb/{ct}.rds",
         feat_file = "result/step1/features_annotated_GRCh37.txt.gz"
     output:
-        ["result/step3/qc/{ct}/{ct}_PC%d_%s.%s"%(NPC, dt, ext)
+        ["result/step3/qc/{ct}/{ct}_%s.%s"%(dt, ext)
          for dt in data_conditions
-         for ext in data_ext] +
-        ["result/step3/qc/{ct}/{ct}_%s_all.%s"%(dt, ext)
-         for ext in data_ext
-         for dt in ["AD", "PINE"]]
+         for ext in data_ext]
     shell:
-        "Rscript --vanilla script/pseudobulk_qc.R {input.rds} {input.feat_file} %d result/step3/qc/{wildcards.ct}"%(NPC)
+        "Rscript --vanilla script/pseudobulk_qc_covariate.R {input.rds} {input.feat_file} %d result/step3/qc/{wildcards.ct}"%(NPC)
 
 rule step3_rsync_up:
     shell:
@@ -226,7 +223,8 @@ rule step4_dropbox:
         "rsync -argv result/step4/twas/TWAS_*.txt.gz* ~/Dropbox/AD430/1.Results/5.TWAS/;"
         "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
         "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
-        "rsync -argv result/step4/combined ~/Dropbox/AD430/1.Results/3.eQTL --progress --exclude=\"*.vcf\""
+        "mkdir -p ~/Dropbox/AD430/1.Results/3.eQTL/;"
+        "rsync -argv result/step4/combined/PC50/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --exclude=\"*.vcf\""
 
 rule step4_combine_qtl:
     input:
@@ -234,7 +232,7 @@ rule step4_combine_qtl:
                adj=("PC"+str(NPC)), ct=celltypes,
                cond=["all","AD","noAD","APOE","noAPOE","male","female"]),
         expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-               adj=["AD","PINE"], ct=celltypes, cond="all")
+               adj=["AD"], ct=celltypes, cond="all")
 
 rule _step4_combine_qtl_job:
     input:
@@ -250,7 +248,7 @@ rule _step4_combine_qtl_job:
 rule step4_run_qtl:
     input:
         expand("result/step4/qtl/{adj}/{cond}/{ct}/{ld}.txt.gz",
-               ct=celltypes, adj=["AD","PINE"],
+               ct=celltypes, adj=["AD"],
                cond="all", ld=range(1,1704))
 
 rule _step4_run_qtl_job:
@@ -327,13 +325,59 @@ rule _step4_combine_twas:
 
 rule step4_queue:
     input:
-        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
-               script="qtl", ct=celltypes, adj=("PC"+str(NPC)),
-               cond=["all","female","male","AD","noAD","APOE","noAPOE"]),
-        expand("jobs/step4/{script}_{ct}_{adj}_{cond}.sh",
-               script="qtl", ct=celltypes, adj=["AD","PINE"],
-               cond="all"),
+        expand("jobs/step4/{script}.{ct}.{cond}.sh",
+               script="qtl", ct=celltypes,
+               cond=data_conditions),
         expand("jobs/step4_gwas/{trait}.sh", trait=TRAITS)
+
+rule _step4_queue_qtl_job_file:
+    input:
+        expr="result/step3/qc/{ct}/{ct}_{cond}.bed.gz",
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        script="jobs/step4/{script}.{ct}.{cond}.sh"
+    run:
+        mkdir("jobs/step4/")
+        with open(output.script,"w") as fh:
+            sys.stdout=fh
+            print("""#!/bin/bash -l
+#SBATCH -J %(COND)s_%(CELLTYPE)s
+#SBATCH -o .log
+#SBATCH -e .log
+#SBATCH -D ./
+#SBATCH -B 1
+#SBATCH -t 1:00:00
+#SBATCH --mem=1024
+#SBATCH --array=1-1703
+
+source /home/${USER}/.bashrc
+source activate general
+
+ld_file=%(LD_FILE)s
+ct=%(CELLTYPE)s
+cond=%(COND)s
+script=%(EXE)s
+expr_file=%(EXPR_FILE)s
+
+ld_index=${SLURM_ARRAY_TASK_ID}
+
+logdir=log/${script}_${tt}_${ct}
+mkdir -p ${logdir}/
+outdir=result/step4/${script}/${cond}/${ct}
+[ -d $outdir ] || mkdir -p $outdir
+
+outfile=${outdir}/${ld_index}.txt.gz
+logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
+
+[ -f $logfile ] && rm $logfile
+if ! [ -f $outfile ]; then
+    Rscript --vanilla script/call_${script}.R ${ld_file} ${ld_index} result/step4/rosmap ${expr_file} ${outfile}  >> $logfile 2>&1
+fi
+[ -f $logfile ] && rm $logfile
+
+"""%{"LD_FILE": input.ld, "EXE": wildcards.script, "CELLTYPE": wildcards.ct,
+     "EXPR_FILE": input.expr, "COND": wildcards.cond})
 
 rule _step4_queue_gwas_job_file:
     input:
@@ -382,67 +426,17 @@ fi
 
 """%{"LD_FILE": input.ld, "TRAIT": wildcards.trait, "EXE": input.exe})
 
-rule _step4_queue_qtl_job_file:
-    input:
-        expr="result/step3/qc/{ct}/{ct}_{adj}_{cond}.bed.gz",
-        ld="data/LD.info.txt",
-        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-    output:
-        script="jobs/step4/{script}_{ct}_{adj}_{cond}.sh"
-    run:
-        mkdir("jobs/step4/")
-        with open(output.script,"w") as fh:
-            sys.stdout=fh
-            print("""#!/bin/bash -l
-#SBATCH -J %(ADJ)s_%(COND)s_%(CELLTYPE)s
-#SBATCH -o .log
-#SBATCH -e .log
-#SBATCH -D ./
-#SBATCH -B 1
-#SBATCH -t 3:00:00
-#SBATCH --mem=16384
-#SBATCH --array=1-1703
-
-source /home/${USER}/.bashrc
-source activate general
-
-ld_file=%(LD_FILE)s
-ct=%(CELLTYPE)s
-adj=%(ADJ)s
-cond=%(COND)s
-script=%(EXE)s
-expr_file=%(EXPR_FILE)s
-
-ld_index=${SLURM_ARRAY_TASK_ID}
-
-logdir=log/${script}_${tt}_${ct}
-mkdir -p ${logdir}/
-outdir=result/step4/${script}/${adj}/${cond}/${ct}
-[ -d $outdir ] || mkdir -p $outdir
-
-outfile=${outdir}/${ld_index}.txt.gz
-logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
-
-[ -f $logfile ] && rm $logfile
-if ! [ -f $outfile ]; then
-    Rscript --vanilla script/call_${script}.R ${ld_file} ${ld_index} result/step4/rosmap ${expr_file} ${outfile}  >> $logfile 2>&1
-fi
-[ -f $logfile ] && rm $logfile
-
-"""%{"LD_FILE": input.ld, "EXE": wildcards.script, "CELLTYPE": wildcards.ct,
-     "EXPR_FILE": input.expr, "ADJ": wildcards.adj, "COND": wildcards.cond})
-
+## update to the cluster
 rule step4_rsync_up:
     shell:
         "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
         "rsync -argv ./result/step4/rosmap* numbers:/home/ypark/work/brain_eqtl_2022/result/step4/ --exclude=\"*temp\" --progress --size-only"
 
+## download results from the cluster
 rule step4_rsync_dn:
     shell:
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/gwas ./result/step4/ --exclude=\"*temp\" --progress;"
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress"
-
-
 
 
 ###################################
@@ -467,21 +461,33 @@ rule step5_pb:
     input:
         expand("result/step5/expr/{ct}.{ext}", ct=celltypes, ext=["bed.gz","pca.rds"])
 
+rule step5_pb_pca:
+    input:
+        expand("result/step5/expr/{ct}.{ext}", ct=celltypes, ext=["pca.rds"])
+
 rule step5_dropbox_expr:
     shell:
         "mkdir -p ~/Dropbox/AD430/1.Results/2.scRNA_uncorrected;"
         "rsync -argv result/step5/expr/* ~/Dropbox/AD430/1.Results/2.scRNA_uncorrected/ --progress"
 
-rule step5_pb_celltype:
+rule step5_pb_celltype_bed:
     input:
         rds = "result/step3/pb/{ct}.rds",
         feat_file = "result/step1/features_annotated_GRCh37.txt.gz"
     output:
-        bed = "result/step5/expr/{ct}.bed.gz",
+        bed = "result/step5/expr/{ct}.bed.gz"
+    shell:
+        "mkdir -p result/step5;"
+        "Rscript --vanilla script/pseudobulk_pca.R {input.rds} {output.pca};"
+
+rule step5_pb_celltype_pca:
+    input:
+        rds = "result/step3/pb/{ct}.rds",
+        feat_file = "result/step1/features_annotated_GRCh37.txt.gz"
+    output:
         pca = "result/step5/expr/{ct}.pca.rds"
     shell:
         "mkdir -p result/step5;"
-        "Rscript --vanilla script/pseudobulk_qc_nopca.R {input.rds} {input.feat_file} {output.bed};"
         "Rscript --vanilla script/pseudobulk_pca.R {input.rds} {output.pca};"
 
 rule step5_queue:

@@ -54,7 +54,7 @@ expr <- readRDS(expr.file)
 message("Read expression data")
 
 mu.mat <-
-    filter.mat(expr$PB$mu, expr$PB$sum) %>% 
+    filter.mat(expr$PB$ln.mu, expr$PB$sum) %>% 
     .sort.cols(pheno = expr$pheno)
 
 X <- apply(t(mu.mat), 2, scale)
