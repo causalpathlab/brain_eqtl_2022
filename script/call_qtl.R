@@ -7,7 +7,7 @@ options(stringsAsFactors = FALSE)
 ## expr.file <- "result/step3/qc/SMC/SMC_PC50_all.bed.gz"
 ## out.file <- "output.txt.gz"
 
-CIS.DIST <- 5e5 # Max distance between SNPs and a gene
+CIS.DIST <- 1e6 # Max distance between SNPs and a gene
 PIP.CUTOFF <- 0
 
 if(length(argv) < 5) q()

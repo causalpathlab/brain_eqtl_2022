@@ -4,7 +4,7 @@ options(stringsAsFactors = FALSE)
 ## expr.file <- "result/step3/pb/Mic.rds"
 ## feature.file <- "result/step1/features_annotated_GRCh37.txt.gz"
 ## pheno.file <- "data/metadata_PFC_all_individuals_092520.tsv.gz"
-## NPC <- 50
+## NPC <- 75
 ## out.dir <- "temp/Mic"
 
 if(length(argv) < 4) q()
@@ -205,16 +205,21 @@ message("Read expression data")
 
 mu.qc <- filter.mat(expr$PB$ln.mu, expr$PB$sum, missing.cutoff = .5)
 
-## Replace "zero" values with the smallest and remove column-wise bias
-mu.qc[is.na(mu.qc)] <- min(mu.qc, na.rm=TRUE)
+## Remove column-wise bias
 .bias <- apply(mu.qc, 2, mean, na.rm=TRUE)
 mu.qc.adj <- sweep(mu.qc, 2, .bias, `-`) %>%
     .sort.cols(pheno = expr$pheno)
 
+mu.qc.std <- t(apply(t(mu.qc.adj), 2, scale))
+rownames(mu.qc.std) <- rownames(mu.qc.adj)
+colnames(mu.qc.std) <- colnames(mu.qc.adj)
+
 message("Basic Q/C to remove column-wise bias")
 
 ## 3. compute principal components filling in zero
-X <- apply(t(mu.qc.adj), 2, scale) ## sample x gene
+mu.qc.nz <- mu.qc.std
+mu.qc.nz[is.na(mu.qc.nz)] <- min(mu.qc.std, na.rm=TRUE)
+X <- apply(t(mu.qc.nz), 2, scale) ## sample x gene
 .svd <- rsvd(X, k = NPC)
 
 ## read meta data
@@ -241,8 +246,6 @@ pheno.assoc <- take.marginal.stat(phi, .svd$u) %>%
 
 pheno.assoc[order(p.val), head(.SD, 1), by = .(pheno)]
 
-pheno.assoc[, q.val := p.adjust(p.val, method="fdr"), by = .(pheno)]
-
 disease.vars <- c("AD",
                   "APOE",
                   "cognep_random_slope",
@@ -252,12 +255,12 @@ disease.vars <- c("AD",
                   "gpath")
 
 disease.pcs <-
-    unlist(pheno.assoc[pheno %in% disease.vars & q.val < 0.1, .(pc)]) %>%
+    unlist(pheno.assoc[pheno %in% disease.vars & p.val < 0.05, .(pc)]) %>%
     unique()
 
 ################################################################
 ## 1) no PCs,
-Y <- mu.qc.adj
+Y <- mu.qc.std
 
 ## 2) with all PCs
 C <- .svd$u
