@@ -180,7 +180,7 @@ run.susie <- function(X, Y){
                           L = 15,
                           estimate_residual_variance = FALSE,
                           na.rm = TRUE)
-        .cs <- susie_get_cs(.susie.k, coverage = 0.9)
+        .cs <- susie_get_cs(.susie.k, coverage = 0.95)
         m <- ncol(X)
         .factor <- apply(.susie.k$alpha, 2, which.max)[1:m]
         .alpha.k <- apply(.susie.k$alpha, 2, max)[1:m]
@@ -267,7 +267,7 @@ out.dt <-
     right_join(marginal.dt) %>%
     left_join(susie.dt) %>%
     left_join(gene.info) %>%
-    filter(`coverage` > .9) %>% 
+    filter(`coverage` > .05) %>% 
     select(`#chromosome_name`, `snp.loc`, `plink.a1`, `plink.a2`,
            `tss`, `tes`, `hgnc_symbol`,
            `beta`, `se`, `n`, `p.val`,
