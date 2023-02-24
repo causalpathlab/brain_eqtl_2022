@@ -247,18 +247,19 @@ rule _step4_combine_qtl_job:
 
 rule step4_run_qtl:
     input:
-        expand("result/step4/qtl/{adj}/{cond}/{ct}/{ld}.txt.gz",
-               ct=celltypes, adj=["AD"],
-               cond="all", ld=range(1,1704))
+        expand("result/step4/qtl/{cond}/{ct}/{ld}.txt.gz",
+               ct=celltypes, 
+               cond=data_conditions,
+               ld=range(1,1704))
 
 rule _step4_run_qtl_job:
     input:
-        expr="result/step3/qc/{ct}/{ct}_{adj}_{cond}.bed.gz",
+        expr="result/step3/qc/{ct}/{ct}_{cond}.bed.gz",
         ld="data/LD.info.txt",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-    output: "result/step4/qtl/{adj}/{cond}/{ct}/{ld}.txt.gz"
+    output: "result/step4/qtl/{cond}/{ct}/{ld}.txt.gz"
     shell:
-        "mkdir -p result/step4/qtl/{wildcards.adj}/{wildcards.cond}/{wildcards.ct}; "
+        "mkdir -p result/step4/qtl/{wildcards.cond}/{wildcards.ct}; "
         "Rscript --vanilla script/call_qtl.R {input.ld} {wildcards.ld} result/step4/rosmap {input.expr} {output}"
 
 rule step4_combine_gwas:
