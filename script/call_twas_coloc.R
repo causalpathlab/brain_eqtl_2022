@@ -2,21 +2,23 @@ options(stringsAsFactors = FALSE)
 argv <- commandArgs(trailingOnly = TRUE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 89
+## ld.index <- 1609
 ## geno.hdr <- "result/step4/rosmap"
-## gwas.dir <- "result/step4/gwas"
-## eqtl.dir <- "result/step4/combined/PC50/all/"
+## gwas.dir <- "data/gwas"
+## gwas.susie.dir <- "result/step4/gwas"
+## eqtl.dir <- "result/step4/combined/allIndv_allPC/"
 ## out.file <- "output.txt.gz"
 
 PIP.CUTOFF <- 1e-8
 
-if(length(argv) < 6) q()
+if(length(argv) < 7) q()
 ld.file <- argv[1]
 ld.index <- as.integer(argv[2])
 geno.hdr <- argv[3]
 gwas.dir <- argv[4]
-eqtl.dir <- argv[5]
-out.file <- argv[6]
+gwas.susie.dir <- argv[5]
+eqtl.dir <- argv[6]
+out.file <- argv[7]
 
 temp.dir <- paste0(out.file, "_temp")
 
@@ -141,6 +143,40 @@ read.gwas <- function(gwas.file, .query){
 
     print(gwas.file)
 
+    .ret <- rbind(.ret, .ret.1) %>%
+        rename(`snp.loc` = `stop`) %>%
+        as.data.table()
+
+    if("#CHR" %in% colnames(.ret)){
+        .ret[, `#chr` := `#CHR`]
+    }
+
+    if("chr" %in% colnames(.ret)){
+        .ret[, `#chr` := `chr`]
+    }
+
+    if("lodds" %in% colnames(.ret)){
+        .ret[, beta := lodds]
+    }
+
+    if("pval" %in% colnames(.ret)){
+        .ret[, p := pval]
+    }
+
+    .trait <- gsub(".bed.gz$", "", basename(gwas.file))
+    .ret[, trait := .trait]
+    .ret[, `#chr` := sapply(`#chr`, gsub, pattern="chr", replacement="")]
+    .ret[, `#chr` := as.integer(`#chr`)]
+    .ret[, .(`#chr`, `snp.loc`, `a1`, `a2`, `beta`, `se`, `p`, `trait`)]
+}
+
+read.gwas.susie <- function(gwas.file, .query){
+
+    .ret.1 <- fread(cmd="tabix " %&% gwas.file %&% " chr" %&% .query %&% " -h", sep = "\t")
+    .ret <- fread(cmd="tabix " %&% gwas.file %&% " " %&% .query %&% " -h", sep = "\t")
+
+    print(gwas.file)
+
     .ret <- rbind(.ret, .ret.1) %>% 
         as.data.table()
 
@@ -213,11 +249,20 @@ if(nrow(eqtl.dt) < 1) {
 
 unlink(temp.dir, recursive=TRUE)
 
+gwas.susie.files <- list.files(gwas.susie.dir,
+                               pattern=".vcf.gz$",
+                               full.names=TRUE)
+
+gwas.susie.dt <- do.call(rbind, lapply(gwas.susie.files, read.gwas.susie, .query=.query))
+
 gwas.files <- list.files(gwas.dir,
-                         pattern=".vcf.gz$",
+                         pattern=".bed.gz$",
                          full.names=TRUE)
 
-gwas.dt <- do.call(rbind, lapply(gwas.files, read.gwas, .query=.query))
+gwas.dt <-
+    do.call(rbind, lapply(gwas.files, read.gwas, .query=.query)) %>%
+    left_join(gwas.susie.dt) %>% 
+    na.omit()
 
 gwas.snps <- gwas.dt %>%
     (function(x)
@@ -250,14 +295,8 @@ gwas.pip <- .match.cols(gwas.theta, gwas.pip)
 stopifnot(all(colnames(gwas.theta) == colnames(gwas.se)))
 stopifnot(all(colnames(gwas.theta) == colnames(gwas.pip)))
 
-eqtl.beta <- .dcast.snps(eqtl.dt, snp.loc ~ hgnc_symbol + celltype,
-                         value.var = "beta", fill=0)
-
 eqtl.theta <- .dcast.snps(eqtl.dt, snp.loc ~ hgnc_symbol + celltype,
                           value.var = "theta", fill=0)
-
-eqtl.se <- .dcast.snps(eqtl.dt, snp.loc ~ hgnc_symbol + celltype,
-                       value.var = "se", fill=0)
 
 eqtl.pip <- .dcast.snps(eqtl.dt, snp.loc ~ hgnc_symbol + celltype,
                         value.var = "pip", fill=0)
@@ -275,10 +314,11 @@ take.matrix <- function(x, remove.cols, fill = 0) {
 ############################
 ## Predict GWAS and genes ##
 ############################
-X <- scale(.plink$BED[, gwas.snps$x.col, drop = FALSE])
+X <- apply(.plink$BED[, gwas.snps$x.col, drop = FALSE], 2, scale)
+X[is.na(X)] <- 0
 
-Y.gwas <- scale(X %*% take.matrix(gwas.theta, 1, 0))
-X.eqtl <- scale(X %*% take.matrix(eqtl.theta, 1, 0))
+Y.gwas <- apply(X %*% take.matrix(gwas.theta, 1, 0), 2, scale)
+X.eqtl <- apply(X %*% take.matrix(eqtl.theta, 1, 0), 2, scale)
 
 .y.name <- data.table(y.col = 1:ncol(Y.gwas), trait = colnames(Y.gwas))
 .x.name <- data.table(x.col = 1:ncol(X.eqtl), gene = colnames(X.eqtl))
@@ -291,33 +331,60 @@ twas.dt <-
     take.marginal.stat(X.eqtl, Y.gwas) %>% 
     left_join(.x.name, by = "x.col") %>% 
     left_join(.y.name, by = "y.col") %>%
-    select(trait, gene, x.col, y.col, beta, n, se, p.val)
+    dplyr::rename(twas.beta = beta, twas.n = n, twas.se = se, twas.p = p.val) %>% 
+    dplyr::select(trait, gene, dplyr::starts_with("twas")) %>%
+    as.data.table()
+
+twas.dt[, c("hgnc_symbol", "celltype") := tstrsplit(`gene`, split="_")]
+twas.dt[, gene := NULL]
 
 ######################################################
 ## Perform colocalization between eQTL and GWAS PIP ##
 ######################################################
 
-dt.1 <- gwas.dt[pip > PIP.CUTOFF, .(snp.loc, pip, trait, k)]
-dt.2 <- eqtl.dt[pip > PIP.CUTOFF, .(snp.loc, pip, hgnc_symbol, celltype, k)]
+dt.1 <- gwas.dt[pip > 1e-8, .(snp.loc, beta, se, pip, trait, k, p, a1, a2)]
+dt.2 <- eqtl.dt[pip > 1e-8, .(snp.loc, pip, hgnc_symbol, celltype, k)]
 
 dt.joint <-
-    full_join(dt.1, dt.2, by = "snp.loc", suffix = c(".gwas",".eqtl")) %>%
-    na.omit() %>%
+    left_join(dt.2, dt.1, by = "snp.loc", suffix = c(".gwas",".eqtl")) %>%
     as.data.table()
 
-.temp <- dt.joint[, .(pip.overlap = sum(pip.gwas * pip.eqtl)),
-                  by = .(hgnc_symbol, celltype, k.eqtl, trait, k.gwas)]
+calc.joint <- function(p1, p2){
+    l1 <- log(p1)
+    l2 <- log(p2)
+    l12 <- l1 + l2
+    l12 <- l12 - max(l12)
+    l12 - log(sum(exp(l12)))
+}
 
-pip.dt <- .temp[order(pip.overlap, decreasing = TRUE),
-                head(.SD, 1),
-                by = .(trait, hgnc_symbol, celltype)]
+dt.joint[,
+         lbf.joint := calc.joint(pip.gwas, pip.eqtl),
+         by = .(hgnc_symbol, celltype, trait, k.eqtl, k.gwas)]
 
-out.dt <- twas.dt %>% 
-    tidyr::separate(`gene`, c("hgnc_symbol","celltype"), sep="[_]") %>% 
-    select(-x.col, -y.col) %>% 
+argmax.eqtl <-
+    eqtl.dt[order(p.val), head(.SD, 1), by = .(hgnc_symbol, celltype)] %>% 
+    dplyr::rename(eqtl.beta=beta, eqtl.se=se, eqtl.n=n, eqtl.p=p.val, eqtl.pip = pip, eqtl.lfsr = lfsr, eqtl.snp = snp.loc) %>% 
+    dplyr::select(`#chromosome_name`, dplyr::starts_with("eqtl"), celltype, hgnc_symbol)
+
+argmax.gwas <-
+    dt.joint[order(p, decreasing = FALSE), head(.SD, 1), by = .(hgnc_symbol, celltype, trait)] %>% 
+    dplyr::rename(gwas.beta=beta, gwas.sd=se, gwas.p = p) %>%
+    dplyr::mutate(gwas.snp = snp.loc %&% ":" %&% a1 %&% ":" %&% a2) %>% 
+    dplyr::select(celltype, hgnc_symbol, trait, dplyr::starts_with("gwas"))
+
+pip.dt <- dt.joint[,
+                   .(snp.joint = snp.loc[which.max(lbf.joint)],
+                     pip.overlap = ( sum(pip.eqtl * pip.gwas) /
+                                     max(sum(pip.eqtl), sum(pip.gwas)) )),
+                  by = .(hgnc_symbol, celltype, trait)]
+
+out.dt <-
+    argmax.eqtl %>%
+    left_join(twas.dt) %>%
     left_join(pip.dt) %>% 
-    filter(`n` > 0) %>% 
-    select(-`k.eqtl`, -`k.gwas`) %>% 
+    left_join(argmax.gwas) %>% 
+    dplyr::filter(`twas.n` > 0) %>% 
+    na.omit() %>% 
     as.data.table()
 
 fwrite(out.dt, out.file, sep="\t")

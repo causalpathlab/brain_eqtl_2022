@@ -12,7 +12,7 @@ library(dplyr)
 ld.info <- fread(ld.file)
 ld.info[, ld.idx := 1:.N]
 
-read.dt.sorted <- function(dir.name, chr, cis.dist=5e5, num.threads=54){
+read.dt.sorted <- function(dir.name, chr, cis.dist=1e6, num.threads=54){
     require(data.table)
     .idx <- which(ld.info$chr == chr | ld.info$chr == paste0("chr",chr))
     .files <- paste0(dir.name, "/", .idx, ".txt.gz")

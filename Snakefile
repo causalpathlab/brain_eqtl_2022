@@ -224,25 +224,23 @@ rule step4_dropbox:
         "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
         "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
         "mkdir -p ~/Dropbox/AD430/1.Results/3.eQTL/;"
-        "rsync -argv result/step4/combined/PC50/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --exclude=\"*.vcf\""
+        "rsync -argv result/step4/combined/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --exclude=\"*.vcf\""
 
 rule step4_combine_qtl:
     input:
-        expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-               adj=("PC"+str(NPC)), ct=celltypes,
-               cond=["all","AD","noAD","APOE","noAPOE","male","female"]),
-        expand("result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-               adj=["AD"], ct=celltypes, cond="all")
+        expand("result/step4/combined/{cond}/{ct}.vcf.gz",
+               ct=celltypes,
+               cond=data_conditions)
 
 rule _step4_combine_qtl_job:
     input:
-        dirname="result/step4/qtl/{adj}/{cond}/{ct}",
+        dirname="result/step4/qtl/{cond}/{ct}",
         ldfile="data/LD.info.txt"
     output:
-        vcf="result/step4/combined/{adj}/{cond}/{ct}.vcf.gz",
-        tbi="result/step4/combined/{adj}/{cond}/{ct}.vcf.gz.tbi"
+        vcf="result/step4/combined/{cond}/{ct}.vcf.gz",
+        tbi="result/step4/combined/{cond}/{ct}.vcf.gz.tbi"
     shell:
-        "mkdir -p result/step4/combined/{wildcards.adj}/{wildcards.cond}; "
+        "mkdir -p result/step4/combined/{wildcards.cond}; "
         "Rscript --vanilla script/combine_qtl.R {input.dirname} {input.ldfile} {output.vcf}"
 
 rule step4_run_qtl:
@@ -294,7 +292,7 @@ rule _step4_run_gwas_job:
 rule step4_run_twas:
     input:
         expand("result/step4/twas/{cond}/{ld}.txt.gz",
-               cond = ["all","AD","noAD","male","female","APOE","noAPOE"],
+               cond = data_conditions,
                ld = range(1,1704))
 
 rule _step4_run_twas_job:
@@ -305,7 +303,7 @@ rule _step4_run_twas_job:
         "result/step4/twas/{cond}/{ld}.txt.gz"
     shell:
         "mkdir -p result/step4/twas/{wildcards.cond}; "
-        "Rscript --vanilla script/call_twas_coloc.R {input.ld} {wildcards.ld} result/step4/rosmap result/step4/gwas result/step4/combined/PC50/{wildcards.cond} {output}"
+        "Rscript --vanilla script/call_twas_coloc.R {input.ld} {wildcards.ld} result/step4/rosmap data/gwas result/step4/gwas result/step4/combined/{wildcards.cond} {output}"
 
 
 rule step4_combine_twas:
