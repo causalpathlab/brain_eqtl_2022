@@ -142,9 +142,7 @@ rule step2_sort_celltype:
 # Step 3. Combine cells and create pseudo-bulk data #
 #####################################################
 
-data_conditions = ["allIndv_noPC","allIndv_allPC","allIndv_selectedPC",
-                   "AD_selectedPC","noAD_selectedPC",
-                   "male_selectedPC","female_selectedPC"]
+data_conditions = ["allIndv_noPC","allIndv_allPC","allIndv_selectedPC"]
 data_ext = ["bed.gz","bed.gz.tbi"]
 NPC = 75
 
@@ -219,18 +217,71 @@ TRAITS = [tr.split(".")[0] for tr in
 
 rule step4_dropbox:
     shell:
-        "mkdir -p ~/Dropbox/AD430/1.Results/5.TWAS;"
-        "rsync -argv result/step4/twas/TWAS_*.txt.gz* ~/Dropbox/AD430/1.Results/5.TWAS/;"
-        "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
-        "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
-        "mkdir -p ~/Dropbox/AD430/1.Results/3.eQTL/;"
-        "rsync -argv result/step4/combined/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --exclude=\"*.vcf\""
+        "echo \"Done\""
+
+# "mkdir -p ~/Dropbox/AD430/1.Results/5.TWAS;"
+# "rsync -argv result/step4/twas/TWAS_*.txt.gz* ~/Dropbox/AD430/1.Results/5.TWAS/;"
+# "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
+# "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
+# "mkdir -p ~/Dropbox/AD430/1.Results/3.eQTL/;"
+# "rsync -argv result/step4/combined/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --exclude=\"*.vcf\""
+
+rule step4_queue:
+    input:
+        expand("jobs/step4/mtsusie.{cond}.sh",
+               cond=data_conditions)
+
+rule step4_mtsusie_job_file:
+    input:
+        ld="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        script="jobs/step4/mtsusie.{cond}.sh"
+    run:
+        mkdir("jobs/step4/")
+        with open(output.script,"w") as fh:
+            sys.stdout=fh
+            print("""#!/bin/bash -l
+#SBATCH -J %(COND)s
+#SBATCH -o .log
+#SBATCH -e .log
+#SBATCH -D ./
+#SBATCH -B 1
+#SBATCH -t 4:00:00
+#SBATCH --mem=2048
+#SBATCH --array=1-1703
+
+source /home/${USER}/.bashrc
+source activate general
+
+ld_file=%(LD_FILE)s
+cond=%(COND)s
+
+ld_index=${SLURM_ARRAY_TASK_ID}
+
+logdir=log/mtsusie_${cond}
+mkdir -p ${logdir}/
+outdir=result/step4/mtsusie/${cond}
+[ -d $outdir ] || mkdir -p $outdir
+
+outfile=${outdir}/${ld_index}.txt.gz
+logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
+
+[ -f $logfile ] && rm $logfile
+if ! [ -f $outfile ]; then
+    Rscript --vanilla script/call_qtl_mt.R ${ld_file} ${ld_index} result/step4/rosmap result/step3/qc/ ${cond}.bed.gz ${outfile} >> $logfile 2>&1
+fi
+[ -f $logfile ] && rm $logfile
+
+"""%{"LD_FILE": input.ld, "COND": wildcards.cond})
+
 
 rule step4_combine_qtl:
     input:
         expand("result/step4/combined/{cond}/{ct}.vcf.gz",
                ct=celltypes,
                cond=data_conditions)
+
 
 rule _step4_combine_qtl_job:
     input:
@@ -243,27 +294,29 @@ rule _step4_combine_qtl_job:
         "mkdir -p result/step4/combined/{wildcards.cond}; "
         "Rscript --vanilla script/combine_qtl.R {input.dirname} {input.ldfile} {output.vcf}"
 
-rule step4_run_qtl:
-    input:
-        expand("result/step4/qtl/{cond}/{ct}/{ld}.txt.gz",
-               ct=celltypes, 
-               cond=data_conditions,
-               ld=range(1,1704))
 
-rule _step4_run_qtl_job:
+rule step4_run_mtsusie:
     input:
-        expr="result/step3/qc/{ct}/{ct}_{cond}.bed.gz",
+        expand("result/step4/mtsusie/{cond}/{ld}.txt.gz",
+               cond=data_conditions,
+               ld=range(1,1704)) 
+
+
+rule _step4_run_mtsusie_job:
+    input:
         ld="data/LD.info.txt",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-    output: "result/step4/qtl/{cond}/{ct}/{ld}.txt.gz"
+    output: "result/step4/mtsusie/{cond}/{ld}.txt.gz"
     shell:
-        "mkdir -p result/step4/qtl/{wildcards.cond}/{wildcards.ct}; "
-        "Rscript --vanilla script/call_qtl.R {input.ld} {wildcards.ld} result/step4/rosmap {input.expr} {output}"
+        "mkdir -p result/step4/mtsusie/{wildcards.cond}/; "
+        "Rscript --vanilla script/call_qtl_mt.R {input.ld} {wildcards.ld} result/step4/rosmap result/step3/qc {wildcards.cond}.bed.gz {output}"
+
 
 rule step4_combine_gwas:
     input:
         expand("result/step4/gwas/{trait}.vcf.gz",trait = TRAITS),
         expand("result/step4/gwas/{trait}.vcf.gz.tbi",trait = TRAITS)
+
 
 rule _step4_combine_gwas_job:
     input:
@@ -308,26 +361,20 @@ rule _step4_run_twas_job:
 
 rule step4_combine_twas:
     input:
-        expand("result/step4/twas/TWAS_{cond}.txt.gz",
-               cond = ["all","AD","noAD","male","female","APOE","noAPOE"])
+        expand("result/step4/twas/TWAS_{cond}.txt.gz", cond = data_conditions)
 
 rule _step4_combine_twas:
     output:
         "result/step4/twas/TWAS_{cond}.txt.gz"
     shell:
         "mkdir -p result/step4/twas; "
-        "cat result/step4/twas/{wildcards.cond}/*.gz | gzip -cd | awk 'NR == 1 {{ print \"#\" $0 }} NR > 1 && $1 != \"trait\" {{ print $0 }}' | gzip -c > {output}"
+        "cat result/step4/twas/{wildcards.cond}/*.gz | gzip -cd | awk 'NR == 1 {{ print \"#\" $0 }} NR > 1 && $1 != \"#chromosome_name\" {{ print $0 }}' | gzip -c > {output}"
+
 
 ##################################################
 # When we need to run many, many jobs in cluster #
 ##################################################
 
-rule step4_queue:
-    input:
-        expand("jobs/step4/{script}.{ct}.{cond}.sh",
-               script="qtl", ct=celltypes,
-               cond=data_conditions),
-        expand("jobs/step4_gwas/{trait}.sh", trait=TRAITS)
 
 rule _step4_queue_qtl_job_file:
     input:

@@ -287,23 +287,11 @@ gwas.snps <- gwas.dt %>%
 }
 
 gwas.theta <- .dcast.snps(gwas.dt, snp.loc ~ trait, value.var = "theta")
-gwas.se <- .dcast.snps(gwas.dt, snp.loc ~ trait, value.var = "theta.sd", fill=1)
-gwas.pip <- .dcast.snps(gwas.dt, snp.loc ~ trait, value.var = "pip")
-gwas.se <- .match.cols(gwas.theta, gwas.se)
-gwas.pip <- .match.cols(gwas.theta, gwas.pip)
-
-stopifnot(all(colnames(gwas.theta) == colnames(gwas.se)))
-stopifnot(all(colnames(gwas.theta) == colnames(gwas.pip)))
 
 eqtl.theta <- .dcast.snps(eqtl.dt, snp.loc ~ hgnc_symbol + celltype,
                           value.var = "theta", fill=0)
 
-eqtl.pip <- .dcast.snps(eqtl.dt, snp.loc ~ hgnc_symbol + celltype,
-                        value.var = "pip", fill=0)
-
-stopifnot(all(gwas.theta$snp.loc == gwas.se$snp.loc))
-stopifnot(all(eqtl.theta$snp.loc == gwas.se$snp.loc))
-stopifnot(all(eqtl.pip$snp.loc == gwas.se$snp.loc))
+stopifnot(all(eqtl.theta$snp.loc == gwas.theta$snp.loc))
 
 take.matrix <- function(x, remove.cols, fill = 0) {
     ret <- as.matrix(x)[, -remove.cols, drop = FALSE]
