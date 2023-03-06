@@ -17,8 +17,8 @@ susie_initialize <- function(n, m, p, L, varY,
     list(alpha        = matrix(1/p, nrow=L, ncol=p),
          mu           = lapply(1:L, function(l) .zero(p,m)),
          mu2          = lapply(1:L, function(l) .zero(p,m)),
+         z            = lapply(1:L, function(l) .zero(p,m)),
          lbf_list     = lapply(1:L, function(l) .zero(p,m)),
-         KL           = rep(as.numeric(NA), L),
          lbf          = rep(as.numeric(NA), L),
          lbf_variable = matrix(as.numeric(NA), L, p),
          V            = sapply(1:L, .var0),
@@ -78,13 +78,13 @@ safe.colsum <- function(xx, .rescale = FALSE) {
 #' \item{mu}{Matrix of posterior means; E[b[j,k] | z[j] = 1]}
 #' \item{mu2}{Matrix of posterior second moments; E[b[j,k]^2 | z[j] = 1]}
 #' \item{lbf}{Vector of log-Bayes factors for each variable.}
-#' \item{lbf_model}{Log-Bayes factor for the single effect regression.}
 #' \item{V}{Prior variance by the EM method.}
 #' \item{loglik}{The log-likelihood, \eqn{\log p(y | X, V)}.}
 #'
 #' @importFrom stats dnorm
+#' @importFrom stats cor
 #'
-single_effect_shared <- function(Y, X, V, residual_variance = NULL){
+single_effect_shared <- function(Y, X, V, residual_variance = NULL, r2.cutoff = .1){
 
     if(is.null(residual_variance)){
         residual_variance <- apply(Y, 2, var, na.rm=TRUE)
@@ -108,7 +108,20 @@ single_effect_shared <- function(Y, X, V, residual_variance = NULL){
 
     .mat <- lbf.mat
     .mat[!is.finite(lbf.mat)] <- NA
+    
     lbf <- apply(.mat, 1, sum, na.rm=TRUE)
+
+    if(!is.null(r2.cutoff)){
+        r2 <- cor(.mat,
+                  lbf,
+                  use="pairwise.complete.obs",
+                  method="spearman")
+        r2[is.na(r2)] <- -Inf
+        if(sum(r2 > r2.cutoff) > 1) {
+            .mat <- .mat[, r2 > .cutoff, drop = FALSE]
+            lbf <- apply(.mat, 1, sum, na.rm=TRUE)
+        }
+    }
 
     maxlbf <- max(lbf)
     w <- exp(lbf - maxlbf)
@@ -118,10 +131,9 @@ single_effect_shared <- function(Y, X, V, residual_variance = NULL){
     post_var <- (1/shat2 + 1/V)^(-1)
     post_mean <- XtY * sweep(post_var, 2, residual_variance, `/`)
     post_mean2 <- post_var + post_mean^2
+    nominal_z <- post_mean / sqrt(post_var)
 
-    lbf_model <- w_sum + maxlbf
     stuff <- sum(dnorm(Y, 0, sqrt(residual_variance), log=TRUE), na.rm=TRUE)
-    loglik <- lbf_model + stuff
 
     ## prior variance by MLE
     V <- sum(sweep(post_mean2, 1, alpha, `*`), na.rm=TRUE)
@@ -129,11 +141,10 @@ single_effect_shared <- function(Y, X, V, residual_variance = NULL){
     list(alpha = alpha,
          mu = post_mean,
          mu2 = post_mean2,
+         z = nominal_z,
          lbf = lbf,
          lbf.mat = lbf.mat,
-         lbf_model = lbf_model,
-         V = V,
-         loglik = loglik)
+         V = V)
 }
 
 #' @param X an n by p design matrix
@@ -177,9 +188,9 @@ update_shared_effect <- function(X, Y, state){
         state$alpha[l, ] <- res$alpha
         state$mu[[l]] <- res$mu
         state$mu2[[l]] <- res$mu2
+        state$z[[l]] <- res$z
         state$lbf_list[[l]] <- res$lbf.mat
         state$V[l] <- res$V
-        state$lbf[l] <- res$lbf_model
         state$lbf_variable[l, ] <- res$lbf
 
         theta.l <- sweep(state$mu[[l]], 1, state$alpha[l, ], `*`)
@@ -189,8 +200,6 @@ update_shared_effect <- function(X, Y, state){
                                       res$alpha,
                                       res$mu,
                                       res$mu2)
-
-        state$KL[l] <- (post.llik -res$loglik)
 
         llik <- llik + post.llik
     }
@@ -269,12 +278,12 @@ take_credible_sets <- function(state, coverage){
         .lbf <- state$lbf_list[[l]]
         for(tt in 1:state$m){
             .beta <- state$mu[[l]][k, tt]
-            .sigma <- sqrt(state$mu2[[l]][k, tt] - .beta^2)
+            .zz <- state$z[[l]][k, tt]
             ret <- rbind(ret, data.frame(l, x.col = k,
                                          alpha = .alpha,
                                          lbf = .lbf[k, tt],
                                          beta = .beta,
-                                         se = .sigma,
+                                         z = .zz,
                                          y.col = tt))
         }
         rownames(ret) <- NULL

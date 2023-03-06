@@ -9,7 +9,7 @@ options(stringsAsFactors=FALSE)
 ## out.file <- "output.txt.gz"
 
 CIS.DIST <- 1e6      # Max distance between SNPs and a gene
-alpha.cutoff <- 1e-2 #PIP.CUTOFF
+alpha.cutoff <- 1e-3 #PIP.CUTOFF
 
 if(length(argv) < 6) q()
 ld.file <- argv[1]
@@ -27,7 +27,7 @@ library(dplyr)
 library(reshape2)
 library(rsvd)
 
-source(here::here("script", "mtSusie.R"))
+source("script/mtSusie.R")
 
 subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
 
@@ -159,7 +159,7 @@ for(g in 1:nrow(expr.dt)){
         full_join(plink$map, susie.dt[alpha > alpha.cutoff], by = "physical.pos") %>%
         na.omit() %>%
         dplyr::select(-genetic.dist,-marker.ID) %>% 
-        dplyr::mutate(z = beta/se, p = 2 * pnorm(abs(z), lower.tail=FALSE)) %>% 
+        dplyr::mutate(p = 2 * pnorm(abs(z), lower.tail=FALSE)) %>% 
         as.data.table()
 
     out.dt <- rbind(out.dt, susie.dt)
