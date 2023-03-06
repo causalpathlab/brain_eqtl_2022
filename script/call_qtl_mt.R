@@ -84,14 +84,7 @@ read.gene <- function(g, expr.dt, plink){
         dplyr::select(y.col, x.col) %>%
         na.omit()
 
-    Y <- as.matrix(Y.dt[.match$y.col, -1]) %>% 
-        apply(MARGIN=2, function(y) {
-            if(!sum(is.na(y)) < 10) return(y)
-            y.min <- min(y, na.rm=TRUE)      # fill in NA (zero)
-            y[is.na(y)] <- y.min             # with the min expression
-            return(y)
-        })
-
+    Y <- as.matrix(Y.dt[.match$y.col, -1])
     X <- as.matrix(plink$bed[.match$x.col, , drop=FALSE])
     list(y=Y, x=X, info=.info)
 }
