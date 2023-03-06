@@ -118,7 +118,7 @@ single_effect_shared <- function(Y, X, V, residual_variance = NULL, r2.cutoff = 
                   method="spearman")
         r2[is.na(r2)] <- -Inf
         if(sum(r2 > r2.cutoff) > 1) {
-            .mat <- .mat[, r2 > .cutoff, drop = FALSE]
+            .mat <- .mat[, r2 > r2.cutoff, drop = FALSE]
             lbf <- apply(.mat, 1, sum, na.rm=TRUE)
         }
     }
