@@ -8,9 +8,6 @@ options(stringsAsFactors=FALSE)
 ## expr.ext <- "allIndv_allPC.bed.gz"
 ## out.file <- "output.txt.gz"
 
-CIS.DIST <- 1e6      # Max distance between SNPs and a gene
-alpha.cutoff <- 1e-3 #PIP.CUTOFF
-
 if(length(argv) < 6) q()
 ld.file <- argv[1]
 ld.index <- as.integer(argv[2])
@@ -19,6 +16,10 @@ expr.dir <- argv[4] # "result/step3/qc/"
 expr.ext <- argv[5] # "allIndv_allPC.bed.gz"
 out.file <- argv[6]
 
+CIS.DIST <- 1e6      # Max distance between SNPs and a gene
+pop.pc <- 3          # local population PCs
+min.size <- 10       # minimum sample size
+
 temp.dir <- paste0(out.file, "_temp")
 
 ################################################################
@@ -26,8 +27,6 @@ library(data.table)
 library(dplyr)
 library(reshape2)
 library(rsvd)
-
-source("script/mtSusie.R")
 
 subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
 
@@ -43,7 +42,7 @@ subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
 
         chr.num <- as.integer(gsub(pattern="chr", replacement="", chr))
 
-        plink.cmd <- sprintf("./bin/plink --bfile %s --make-bed --geno 0.05 --maf 0.05 --hwe 1e-6 --chr %d --from-bp %d --to-bp %d --out %s",
+        plink.cmd <- sprintf("./bin/plink --bfile %s --make-bed --geno 0.05 --maf 0.05 --hwe 1e-4 --chr %d --from-bp %d --to-bp %d --out %s",
                              plink.hdr, chr.num, plink.lb, plink.ub, paste0(temp.dir, "/plink"))
         system(plink.cmd)
 
@@ -76,17 +75,17 @@ read.gene <- function(g, expr.dt, plink){
 
     .plink.fam <- plink$fam %>%
         mutate(projid=as.integer(`sample.ID`)) %>%
-        mutate(x.col=1:n())
+        mutate(x.row=1:n())
 
     .match <-
         left_join(Y.dt[, .(projid)], .plink.fam, by="projid") %>%
-        dplyr::mutate(y.col=1:n()) %>% 
-        dplyr::select(y.col, x.col) %>%
+        dplyr::mutate(y.row=1:n()) %>%
+        dplyr::select(y.row, x.row) %>%
         na.omit()
 
-    Y <- as.matrix(Y.dt[.match$y.col, -1])
-    X <- as.matrix(plink$bed[.match$x.col, , drop=FALSE])
-    list(y=Y, x=X, info=.info)
+    Y <- as.matrix(Y.dt[.match$y.row, -1])
+    X <- as.matrix(plink$bed[.match$x.row, , drop=FALSE])
+    list(y=Y, x=X, info=.info, match = .match)
 }
 
 ################################################################
@@ -105,7 +104,7 @@ plink <- subset.plink(geno.hdr, ld.info[ld.index]$`chr`,
 unlink(temp.dir, recursive=TRUE)
 
 ## read all the genes and cell types within the LD block
-expr.files <- 
+expr.files <-
     lapply(list.files(expr.dir, full.names=TRUE), list.files,
            pattern=paste0(expr.ext, "$"),
            full.names=TRUE) %>%
@@ -126,46 +125,65 @@ for(.file in expr.files){
     message("Read ", .file)
 }
 
-
 out.dt <- data.table()
 
 for(g in 1:nrow(expr.dt)){
 
     data <- read.gene(g, expr.dt, plink)
+    message("Successfully parsed data [", g,"]: Y")
 
-    y.dt <- data.table(celltype=colnames(data$y), y.col=1:ncol(data$y))
-    x.dt <- data.table(physical.pos=plink$map$physical.pos, x.col=1:ncol(data$x))
-    message("Successfully parsed data [", g,"]: X, Y")
+    cis.variants <- which(plink$map$physical.pos > (data$info$tss - CIS.DIST) &
+                          plink$map$physical.pos < (data$info$tss + CIS.DIST))
 
-    susie <- fit_mt_susie(X=data$x, Y=data$y, L=30)
-    message("Done: mtSusie Estimation [", g, "]")
+    if(length(cis.variants) < 1) next
 
-    lfsr <-
-        reshape2::melt(susie$stat$lfsr, value.name="lfsr") %>%
-        dplyr::rename(l=Var1, y.col=Var2)
+    x.pos <- plink$map$physical.pos[cis.variants]
+    data$x <- data$x[, cis.variants, drop = FALSE]
 
-    susie.dt <-
-        susie$cs %>% na.omit() %>% as.data.table() %>%
-        dplyr::left_join(x.dt, by="x.col") %>%
-        dplyr::left_join(y.dt, by="y.col") %>%
-        dplyr::left_join(lfsr, by=c("l", "y.col")) %>%
-        dplyr::select(-x.col, -y.col) %>%
+    x.dt <- data.table(physical.pos=x.pos, variants=1:ncol(data$x))
+
+    message("Enforce cis-distance around TSS: ", length(cis.variants), " variants")
+
+    x0 <- apply(data$x, 2, scale)
+    x0[is.na(x0)] <- 0
+    x.svd <- rsvd::rsvd(x0, pop.pc)
+    message("Local population structures")
+    x.knn <- FNN::get.knn(x.svd$u, 1)
+
+    xx <- apply(data$x, 2, scale)
+    yy <- apply(data$y, 2, scale)
+    remove <- which(apply(is.finite(yy), 2, sum) <= min.size)
+
+    if(length(remove) == ncol(yy)) next
+
+    yy <- yy[, -remove, drop = FALSE]
+    y.dt <- data.table(celltype=colnames(yy), traits=1:ncol(yy))
+    y0 <- yy[x.knn$nn.index, , drop = FALSE]
+
+    susie <- mtSusie::mt_susie(xx, yy - y0, L=30, tol=1e-6,
+                               output.full.stat=FALSE,
+                               min.pip.cutoff = alpha.cutoff)
+
+    susie.dt <- setDT(susie$cs) %>%
+        dplyr::left_join(x.dt, by="variants") %>%
+        dplyr::left_join(y.dt, by="traits") %>%
+        dplyr::select(-traits, -variants) %>%
+        na.omit() %>%
         as.data.table()
 
-    susie.dt <- cbind(data$info[, .(tss, tes, ensembl_gene_id, hgnc_symbol)],
-                      susie.dt)
-
     susie.dt <-
-        full_join(plink$map, susie.dt[alpha > alpha.cutoff], by = "physical.pos") %>%
-        na.omit() %>%
-        dplyr::select(-genetic.dist,-marker.ID) %>% 
-        dplyr::mutate(p = 2 * pnorm(abs(z), lower.tail=FALSE)) %>% 
+        cbind(data$info, susie.dt) %>%
+        dplyr::select(`#chromosome_name`, `physical.pos`, `levels`,
+                      `tss`, `tes`, `hgnc_symbol`, `celltype`,
+                      `alpha`, `mean`, `var`, `lbf`, `z`, `lodds`, `lfsr`) %>%
         as.data.table()
 
     out.dt <- rbind(out.dt, susie.dt)
 
     message("Done [", g, "]")
 }
+
+
 
 fwrite(out.dt, file=out.file, sep="\t")
 unlink(temp.dir, recursive=TRUE)
