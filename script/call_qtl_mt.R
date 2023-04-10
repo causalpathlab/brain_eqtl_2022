@@ -127,6 +127,12 @@ for(.file in expr.files){
 
 out.dt <- data.table()
 
+if(nrow(expr.dt) < 1) {
+    fwrite(out.dt, file=out.file, sep="\t")
+    unlink(temp.dir, recursive=TRUE)
+    q()
+}
+
 for(g in 1:nrow(expr.dt)){
 
     data <- read.gene(g, expr.dt, plink)
@@ -154,15 +160,22 @@ for(g in 1:nrow(expr.dt)){
     yy <- apply(data$y, 2, scale)
     remove <- which(apply(is.finite(yy), 2, sum) <= min.size)
 
-    if(length(remove) == ncol(yy)) next
+    if(length(remove) > 0){
+        yy <- yy[, -remove, drop = FALSE]
+    }
 
-    yy <- yy[, -remove, drop = FALSE]
+    if(ncol(yy) < 1) next
+
     y.dt <- data.table(celltype=colnames(yy), traits=1:ncol(yy))
     y0 <- yy[x.knn$nn.index, , drop = FALSE]
 
-    susie <- mtSusie::mt_susie(xx, yy - y0, L=30, tol=1e-6,
-                               output.full.stat=FALSE,
-                               min.pip.cutoff = alpha.cutoff)
+    susie <- mtSusie::mt_susie(xx,
+                               (yy - y0),
+                               L = 30,
+                               clamp = 4,
+                               tol = 1e-6,
+                               output.full.stat = FALSE,
+                               local.residual = FALSE)
 
     susie.dt <- setDT(susie$cs) %>%
         dplyr::left_join(x.dt, by="variants") %>%
@@ -182,8 +195,6 @@ for(g in 1:nrow(expr.dt)){
 
     message("Done [", g, "]")
 }
-
-
 
 fwrite(out.dt, file=out.file, sep="\t")
 unlink(temp.dir, recursive=TRUE)

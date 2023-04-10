@@ -142,7 +142,7 @@ rule step2_sort_celltype:
 # Step 3. Combine cells and create pseudo-bulk data #
 #####################################################
 
-data_conditions = ["allIndv_noPC","allIndv_allPC","allIndv_selectedPC"]
+data_conditions = ["allIndv_allPC"]
 data_ext = ["bed.gz","bed.gz.tbi"]
 NPC = 75
 
@@ -282,7 +282,6 @@ rule step4_combine_qtl:
                ct=celltypes,
                cond=data_conditions)
 
-
 rule _step4_combine_qtl_job:
     input:
         dirname="result/step4/qtl/{cond}/{ct}",
@@ -300,7 +299,6 @@ rule step4_run_mtsusie:
         expand("result/step4/mtsusie/{cond}/{ld}.txt.gz",
                cond=data_conditions,
                ld=range(1,1704)) 
-
 
 rule _step4_run_mtsusie_job:
     input:
