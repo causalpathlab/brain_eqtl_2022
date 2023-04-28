@@ -17,7 +17,6 @@ expr.ext <- argv[5] # "allIndv_allPC.bed.gz"
 out.file <- argv[6]
 
 CIS.DIST <- 1e6      # Max distance between SNPs and a gene
-pop.pc <- 3          # local population PCs
 min.size <- 10       # minimum sample size
 
 temp.dir <- paste0(out.file, "_temp")
@@ -150,12 +149,6 @@ for(g in 1:nrow(expr.dt)){
 
     message("Enforce cis-distance around TSS: ", length(cis.variants), " variants")
 
-    x0 <- apply(data$x, 2, scale)
-    x0[is.na(x0)] <- 0
-    x.svd <- rsvd::rsvd(x0, pop.pc)
-    message("Local population structures")
-    x.knn <- FNN::get.knn(x.svd$u, 1)
-
     xx <- apply(data$x, 2, scale)
     yy <- apply(data$y, 2, scale)
     remove <- which(apply(is.finite(yy), 2, sum) <= min.size)
@@ -167,15 +160,14 @@ for(g in 1:nrow(expr.dt)){
     if(ncol(yy) < 1) next
 
     y.dt <- data.table(celltype=colnames(yy), traits=1:ncol(yy))
-    y0 <- yy[x.knn$nn.index, , drop = FALSE]
 
     susie <- mtSusie::mt_susie(xx,
-                               (yy - y0),
-                               L = 30,
-                               clamp = 4,
+                               yy,
+                               L = 20,
+                               clamp = 8,
                                tol = 1e-6,
                                output.full.stat = FALSE,
-                               local.residual = FALSE)
+                               local.residual = TRUE)
 
     susie.dt <- setDT(susie$cs) %>%
         dplyr::left_join(x.dt, by="variants") %>%

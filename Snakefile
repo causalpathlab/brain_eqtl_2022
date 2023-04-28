@@ -293,6 +293,22 @@ rule _step4_combine_qtl_job:
         "mkdir -p result/step4/combined/{wildcards.cond}; "
         "Rscript --vanilla script/combine_qtl.R {input.dirname} {input.ldfile} {output.vcf}"
 
+rule step4_combine_mtqtl:
+    input:
+        expand("result/step4/combined/{cond}/multi_celltype.vcf.gz",
+               cond=data_conditions)
+
+rule _step4_combine_qtl_mt_job:
+    input:
+        mct="result/step4/mtsusie/{cond}/",
+        eqtl="result/step4/combined/{cond}/",
+        ld="data/LD.info.txt"
+    output:
+        vcf="result/step4/combined/{cond}/multi_celltype.vcf.gz",
+        tbi="result/step4/combined/{cond}/multi_celltype.vcf.gz.tbi"
+    shell:
+        "mkdir -p result/step4/combined/{wildcards.cond}; "
+        "Rscript --vanilla script/combine_qtl_mt.R {input.mct} {input.eqtl} {input.ld} {output.vcf}"
 
 rule step4_run_mtsusie:
     input:
