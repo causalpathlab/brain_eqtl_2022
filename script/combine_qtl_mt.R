@@ -8,7 +8,7 @@ ld.file <- argv[3]
 out.file <- argv[4]
 
 LFSR.CUTOFF <- 0.1
-P.CUTOFF <- 5e-3
+P.CUTOFF <- 5e-4
 
 library(data.table)
 library(dplyr)
@@ -26,9 +26,19 @@ grab.mct.dt <- function(mct.file, eqtl.files, lfsr.cutoff = LFSR.CUTOFF, p.cutof
     require(dplyr)
     data.table::setDTthreads(1)
 
+    mct.dt <- fread(mct.file)
+    if(nrow(mct.dt) < 1) return(data.table())
+
+    .ld <- gsub(".txt.gz$","",basename(mct.file))
+
     ## 0. Read multi cell type results
-    mct.dt <- fread(mct.file) %>% 
-        dplyr::mutate(se = sqrt(`var`)) %>% 
+    mct.dt[`var` <= 1e-8, var := 0]  # Deal with numerical zero
+    mct.dt[`var` <= 1e-8, lfsr := 1] # This is not a reliable estimate
+    mct.dt[`var` <= 1e-8, mean := 0] # Essentially empty
+    mct.dt[`var` <= 1e-8, z := 0]    # Essentially empty
+
+    mct.dt <- mct.dt %>%
+        dplyr::mutate(se = sqrt(`var`)) %>%
         dplyr::rename(mct.level = `levels`,
                       mct.pip = `alpha`,
                       mct.mean = `mean`,
@@ -36,8 +46,8 @@ grab.mct.dt <- function(mct.file, eqtl.files, lfsr.cutoff = LFSR.CUTOFF, p.cutof
                       mct.z = `z`,
                       mct.lodds = `lodds`,
                       mct.lfsr = lfsr) %>%
-        dplyr::mutate(mct.p.val = 2 * pnorm(abs(mct.z), lower.tail=FALSE)) %>% 
-        dplyr::select(-`lbf`, -`var`) %>% 
+        dplyr::mutate(mct.p.val = 2 * pnorm(abs(mct.z), lower.tail=FALSE)) %>%
+        dplyr::select(-`lbf`, -`var`) %>%
         as.data.table
 
     chr <- unlist(mct.dt[1,1])
@@ -55,8 +65,8 @@ grab.mct.dt <- function(mct.file, eqtl.files, lfsr.cutoff = LFSR.CUTOFF, p.cutof
         .dt <-
             fread(cmd=paste0("tabix ", eqtl.file, " ", query, " -h"), header = TRUE) %>%
             dplyr::rename(physical.pos = snp.loc) %>%
-            dplyr::select(physical.pos, hgnc_symbol, plink.a1, plink.a2, beta, se, p.val, pip) %>% 
-            dplyr::mutate(celltype = .ct) %>% 
+            dplyr::select(physical.pos, hgnc_symbol, plink.a1, plink.a2, beta, se, p.val, pip, lfsr) %>%
+            dplyr::mutate(celltype = .ct) %>%
             as.data.table()
 
         top.eqtl.dt <- rbind(top.eqtl.dt, .dt)
@@ -69,11 +79,11 @@ grab.mct.dt <- function(mct.file, eqtl.files, lfsr.cutoff = LFSR.CUTOFF, p.cutof
 
     ## 3. Select SNPs that are significant in at least one cell type
     .backbone <-
-        ret[mct.lfsr < lfsr.cutoff & mct.p.val < p.cutoff,
-                     .(physical.pos, hgnc_symbol)] %>%
+        ret[mct.lfsr < lfsr.cutoff & mct.p.val < p.cutoff & lfsr < lfsr.cutoff,
+                     .(physical.pos, hgnc_symbol, mct.level)] %>%
         unique()
 
-    ret <- left_join(.backbone, ret, by = c("physical.pos", "hgnc_symbol"))
+    ret <- left_join(.backbone, ret, by = c("physical.pos", "hgnc_symbol", "mct.level"))
 
     ret <- ret %>%
         dplyr::select(`#chromosome_name`,
@@ -82,11 +92,19 @@ grab.mct.dt <- function(mct.file, eqtl.files, lfsr.cutoff = LFSR.CUTOFF, p.cutof
                       `plink.a1`,
                       `plink.a2`,
                       `celltype`,
-                      dplyr::starts_with("mct"),                      
+                      `mct.level`,
+                      `mct.pip`,
+                      `mct.mean`,
+                      `mct.se`,
+                      `mct.z`,
+                      `mct.lodds`,
+                      `mct.lfsr`,
                       `beta`,
                       `se`,
                       `p.val`,
-                      `pip`) %>% 
+                      `pip`,
+                      `lfsr`) %>%
+        dplyr::mutate(LD = .ld) %>%
         as.data.table
 }
 

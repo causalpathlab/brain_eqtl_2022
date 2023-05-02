@@ -1,0 +1,666 @@
+---
+title: "Multi-cell-type analysis"
+author: "Yongjin Park"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+classoption: "aspectratio=169"
+output:
+    beamer_presentation:
+        colortheme: "orchid"
+        keep_tex: true
+        latex_engine: xelatex
+        slide_level: 2
+header-includes:
+  - \usepackage{cancel}
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{multirow}
+  - \usepackage{wrapfig}
+  - \usepackage{float}
+  - \usepackage{colortbl}
+  - \usepackage{pdflscape}
+  - \usepackage{tabu}
+  - \usepackage{threeparttable}
+  - \usepackage{threeparttablex}
+  - \usepackage[normalem]{ulem}
+  - \usepackage{makecell}
+  - \usepackage{xcolor}
+---
+
+
+```{r include=FALSE}
+library(data.table)
+library(tidyverse)
+library(patchwork)
+theme_set(theme_classic())
+source("Util.R")
+source("Setup.R", )
+setup.env("Fig/multi_celltype/")
+```
+
+```{r helper_functions, include=FALSE}
+.count <- function(...) length(unique(unlist(...)))
+.count.rows <- function(...) nrow(unique(...))
+```
+
+```{r read_data, include=FALSE}
+mct.file.name <- "../result/step4/combined/allIndv_allPC/multi_celltype.vcf.gz"
+mct.dt <- fread(mct.file.name)
+## gene information
+genes <- fread("../result/step1/features_annotated_GRCh37.txt.gz")
+
+## Take the top PIP variant per each independent effect
+top.var <-
+    mct.dt[order(mct.pip, decreasing = TRUE),
+           head(.SD,1),
+           by = .(`#chromosome_name`,`LD`,
+                  `mct.level`,
+                  `hgnc_symbol`)] %>%
+    select(`#chromosome_name`,`LD`,
+           `mct.level`,`hgnc_symbol`,
+           `physical.pos`) %>%
+    unique() %>%
+    mutate(id = 1:n())
+
+ntot <- .count.rows(top.var)
+ngenes <- .count(top.var$hgnc_symbol)
+nsnps <-
+    top.var[, .(`#chromosome_name`, physical.pos)] %>%
+    .count.rows()
+```
+
+\Large
+
+* We consolidated `r num.int(ntot)` unique gene-and-locus pairs that are significantly associated in at least one cell type with local false sign rate (LFSR) 10%.
+
+* We identified eQTLs for `r num.int(ngenes)` unique genes out of total `r num.int(nrow(genes))` genes
+
+* Of total `r num.int(ntot)` eQTL-gene pairs, `r num.int(nsnps)` variants were found unique.
+
+\normalsize
+
+## How do these top variants break down into multiple cell types?
+
+```{r counting_func, include = FALSE}
+mct.top <- top.var %>% left_join(mct.dt)
+
+.count.ct <- function(.cutoff){
+
+    .temp <- mct.top[mct.lfsr < .cutoff,
+                     .(id, celltype, hgnc_symbol)] %>%
+        unique()
+
+    .snpid.ct <- unique(.temp[, .(id, celltype)])
+    .gene.ct <- unique(.temp[, .(hgnc_symbol, celltype)])
+
+    ct.per.snpid <- .snpid.ct[, .(nct = .N), by=.(id)]
+    ct.per.snpid.stat <- ct.per.snpid[, .(count = .N), by = .(`nct`)]
+    id.per.ct <- .snpid.ct[, .(nid = .N), by=.(celltype)]
+
+    ct.per.gene <- .gene.ct[, .(nct = .N), by=.(hgnc_symbol)]
+    ct.per.gene.stat <- ct.per.gene[, .(count = .N), by = .(`nct`)]
+    gene.per.ct <- .gene.ct[, .(ngene = .N), by=.(celltype)]
+
+    list(
+        ct.per.snpid = ct.per.snpid,
+        ct.per.snpid.stat = ct.per.snpid.stat[order(`nct`),],
+        id.per.ct = id.per.ct,
+        ct.per.gene = ct.per.gene,
+        ct.per.gene.stat = ct.per.gene.stat[order(`nct`),],
+        gene.per.ct = gene.per.ct)
+}
+```
+
+
+```{r count_celltype_stat}
+.ticks <- c(0.2, 0.15, 0.1, 0.05, 0.01, 0.005)
+.stats <- lapply(.ticks, function(x){
+    xx <- .count.ct(x)
+    xx$ct.per.snpid.stat$lfsr <- x
+    xx$ct.per.gene.stat$lfsr <- x
+    xx$cutoff <- x
+    xx
+})
+
+ct.per.gene.stat <-
+    lapply(.stats, function(x) x$ct.per.gene.stat) %>%
+    do.call(what=rbind)
+
+ct.per.snpid.stat <-
+    lapply(.stats, function(x) x$ct.per.snpid.stat) %>%
+    do.call(what=rbind)
+
+ct.sum.stat <- lapply(.stats, function(x){
+    rbind(data.table(mu = mean(x$ct.per.gene$nct),
+                     med = median(x$ct.per.gene$nct),
+                     sig = sd(x$ct.per.gene$nct),
+                     cutoff = x$cutoff,
+                     type = "per gene"),
+          data.table(mu = mean(x$ct.per.snpid$nct),
+                     med = median(x$ct.per.snpid$nct),
+                     sig = sd(x$ct.per.snpid$nct),
+                     cutoff = x$cutoff,
+                     type = "per SNP"))
+}) %>%
+    do.call(what = rbind)
+```
+
+\Large
+
+- Use local false sign rate (LFSR) cutoff
+
+- We investigated the cell type specificity of eQTL variants and target genes, varying LFSR cutoff values.
+
+\normalsize
+
+
+## In how many cell types were each gene regulated by cis variants?
+
+```{r Fig_celltype_per_gene, fig.width=4, fig.height=3}
+ggplot(ct.per.gene.stat, aes(`nct`, `count`, group=`lfsr`, colour=as.factor(`lfsr`))) +
+    xlab("# cell types per gene") +
+    geom_line(linewidth=1.5) +
+    scale_colour_brewer("False Sign Rate\ncutoff",
+                        palette = "Paired",
+                        direction = 1)
+```
+
+## In how many cell types did each SNP regulate the target genes?
+
+```{r Fig_celltype_per_snp, fig.width=4, fig.height=3}
+ggplot(ct.per.snpid.stat, aes(`nct`, `count`, group=`lfsr`, colour=as.factor(`lfsr`))) +
+    xlab("# cell types per SNP") +
+    geom_line(linewidth=1.5) +
+    scale_colour_brewer("False Sign Rate\ncutoff",
+                        palette = "Paired",
+                        direction = 1)
+```
+
+## Summary: How many cell types per gene and SNP?
+
+```{r Fig_num_celltype_summary, fig.width=5.5, fig.height=2.5}
+ggplot(ct.sum.stat, aes(cutoff, mu)) +
+    facet_wrap(~`type`, scales="free") +
+    ylab("# cell types") +
+    xlab("False Sign Rate cutoff") +
+    geom_line(linewidth=.5, lty=2) +
+    geom_linerange(aes(ymin=mu-sig, ymax=mu+sig), linewidth=.2) +
+    geom_point(aes(fill=`type`), pch=21) +
+    scale_fill_brewer(palette = "Set2", guide="none") +
+    geom_text_repel(aes(y=`mu`, label=`med`))
+```
+
+
+## Clustering eQTLs by tissue-specificity patterns
+
+```{r prepare_SNP_zscores_for_clustering}
+lfsr.cutoff <- 0.05
+
+.eqtls <-
+    mct.top[mct.lfsr < lfsr.cutoff & lfsr < lfsr.cutoff,
+            .(`#chromosome_name`, physical.pos, mct.level, LD)] %>%
+    unique()
+
+.eqtl.features <-
+    .eqtls %>% left_join(mct.dt) %>%
+    dcast(`#chromosome_name` + physical.pos + mct.level + LD ~ celltype,
+          value.var = "mct.z",
+          fun.aggregate = mean, fill = 0)
+
+.eqtls <- .eqtl.features %>%
+    select(`#chromosome_name`, physical.pos, mct.level, LD)
+
+.zscores <- .eqtl.features %>%
+    select(-`#chromosome_name`, -physical.pos, -mct.level, -LD) %>%
+    as.matrix
+
+.zscores[.zscores > 6] <- 6
+.zscores[.zscores < -6] <- -6
+```
+
+```{r cluster_zscores_by_knn}
+knn <- 50
+knn.graph.file <- ".multi_celltype_zscore_knn_" %&% knn %&% ".rds"
+
+if.needed(knn.graph.file, {
+    annoy <- new(RcppAnnoy::AnnoyEuclidean, ncol(.zscores))
+    for(i in 1:nrow(.zscores)){
+        annoy$addItem(i-1, .zscores[i,])
+    }
+    annoy$build(50)
+
+    xx <- c()
+    yy <- c()
+    dd <- c()
+    for(i in 1:nrow(.zscores)){
+        xx <- c(xx, rep(i, knn))
+        neigh <- annoy$getNNsByItem(i-1, knn)
+        neigh.dd <- sapply(neigh, function(j) annoy$getDistance(i-1, j))
+        yy <- c(yy, neigh + 1)
+        dd <- c(dd, neigh.dd)
+    }
+
+    nn <- nrow(.zscores)
+    mm <- length(xx)
+    A <- Matrix::spMatrix(nrow=nn, ncol=nn, i=xx, j=yy, x=exp(-dd))
+    saveRDS(A, file=knn.graph.file)
+})
+
+graph.clust.file <- ".multi_celltype_zscore_clust_" %&% knn %&% ".rds"
+
+if.needed(graph.clust.file, {
+    A <- readRDS(file=knn.graph.file)
+    nct <- ncol(.zscores)
+    A <- A^(1/nct)        # rescale to be smooth
+    A <- (A + t(A))/2     # symetrize
+
+    G <- igraph::graph_from_adjacency_matrix(A, mode="undirected", weighted=TRUE)
+
+    clust <- igraph::cluster_louvain(G)
+    saveRDS(clust, graph.clust.file)
+})
+
+clust <- readRDS(graph.clust.file)
+
+nct <- ncol(.zscores)
+
+eqtl.membership <- .eqtls %>%
+    mutate(k = clust$membership) %>%
+    left_join(mct.top[, .(`#chromosome_name`, physical.pos, mct.level, LD, hgnc_symbol)]) %>%
+    unique()
+
+eqtl.clust.stat <-
+    eqtl.membership[,
+                    .(nsnps = .N, ngenes = .count(hgnc_symbol)),
+                    by = .(k)]
+
+clust.pattern <- left_join(eqtl.membership, mct.top) %>%
+    (function(x) x[, .(mu = mean(mct.z), sig = sd(mct.z)),
+                   by = .(k, celltype)])
+```
+
+1. Prepare z-score matrix (`r num.int(nrow(.zscores))` SNPs $\times$ `r ncol(.zscores)` cell types) with LFSR cutoff `r lfsr.cutoff`.
+
+2. Construct `r nrow(.zscores)` by `r nrow(.zscores)` adjacency matrix $A$ by searching `r knn` nearest neighbours (including itself)
+
+3. Calculate each edge weight $W_{ij} = \exp(-d_{ij} / m)$, where $d_{ij}$ captures Euclidean distance between cell-type-specific z-score vectors of eQTL $i$ and $j$, and $m$ is the total number of cell types ($m=$ `r nct`).
+
+4. Perform Louvain clustering on the graph data constructed by the weighted adjacency matrix.
+
+
+```{r}
+K <- .count(clust.pattern$k)
+```
+
+## `r K` eQTL modules identified by `r nct` cell-type-specific patterns
+
+```{r Fig_eqtl_zscore_cluster_mat, fig.width = 5.5, fig.height=3}
+.clust.df <-
+    clust.pattern %>%
+    mutate(col = celltype, row = k, weight = abs(mu)) %>%
+    order.pair(TRUE)
+
+.clust.order <- sort(unique(.clust.df$row))
+.ct.order <- sort(unique(.clust.df$col))
+
+ggplot(.clust.df, aes(row, col, fill=pmin(pmax(mu, -4), 4))) +
+    theme(axis.text = element_text(size=6)) +
+    theme(legend.text = element_text(size=4)) +
+    theme(legend.title = element_text(size=4)) +
+    theme(legend.key.width = unit(.2, "lines")) +
+    geom_tile(linewidth=.1, colour="gray30") +
+    ylab("cell types") + xlab(K %&% " clusters") +
+    scale_fill_gradient2("average\nz-score", low="blue", high="red")
+```
+
+## A large number of eQTLs...
+
+```{r Fig_eqtl_zscore_cluster_size, fig.width = 5.5, fig.height=2}
+.df <- eqtl.clust.stat %>%
+    mutate(k = factor(k, .clust.order)) %>%
+    mutate(ng.lab = round(ngenes/1000,1) %&% "k") %>%
+    mutate(ns.lab = round(nsnps/1000,1) %&% "k") %>%
+    arrange(k) %>%
+    mutate(snp.pr = `nsnps`/sum(`nsnps`)) %>%
+    mutate(gene.pr = `ngenes`/sum(`ngenes`)) %>%
+    mutate(cum.snp.pr = cumsum(snp.pr)) %>%
+    mutate(cum.gene.pr = cumsum(gene.pr))
+
+p1 <- ggplot(.df, aes(k, ngenes, label=ng.lab)) + theme_void() +
+    scale_y_sqrt() +
+    geom_bar(stat="identity", fill="gray", linewidth=.1) +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="y", angle=90)
+
+p2 <- ggplot(.df, aes(k, nsnps, label=ns.lab)) + theme_void() +
+    scale_y_sqrt() +
+    geom_bar(stat="identity", fill="gray", linewidth=.1) +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="y", angle=90)
+
+p1/p2
+```
+
+## A large number of eQTLs fall into one group?
+
+```{r Fig_eqtl_zscore_cluster_cum, fig.width=5.5, fig.height=3}
+ggplot(.df, aes(as.integer(k))) +
+    geom_line(aes(y=cum.snp.pr), colour="gray20") +
+    geom_line(aes(y=cum.gene.pr), colour="gray40", lty=2) +
+    geom_text(aes(y=cum.snp.pr, label=round(100*cum.snp.pr)), size=2, hjust=1, vjust=0) +
+    geom_text(aes(y=cum.gene.pr, label=round(100*cum.gene.pr)), size=2, hjust=0, vjust=1) +
+    scale_y_continuous(limits=c(0,1)) +
+    xlab("clusters sorted") + ylab("Fraction of SNPs/genes captured")
+```
+
+##
+
+```{r Fig_celltype_count_eqtl_gene, fig.width=5.5, fig.height=3}
+ct.stat <- .count.ct(lfsr.cutoff)
+
+ct.stat$gene.per.ct <- ct.stat$gene.per.ct %>%
+    mutate(celltype = factor(celltype, .ct.order))
+
+ct.stat$id.per.ct <- ct.stat$id.per.ct %>%
+    mutate(celltype = factor(celltype, .ct.order))
+
+.aes <- aes(y=`celltype`, x=`ngene`, yend=`celltype`, xend=0, label=num.int(ngene))
+
+p1 <-
+    ggplot(ct.stat$gene.per.ct, .aes) +
+    theme(axis.text = element_text(size=4), axis.title.y=element_blank()) +
+    theme(axis.title = element_text(size=6)) +
+    scale_x_reverse() +
+    geom_segment(linewidth=2, colour="gray") +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="x") +
+    xlab("# eGenes per cell type")
+
+.aes <- aes(y=`celltype`, x=`nid`, yend=`celltype`, xend=0, label=num.int(nid))
+p2 <-
+    ggplot(ct.stat$id.per.ct, .aes) +
+    theme(axis.text = element_text(size=4)) +
+    theme(axis.title = element_text(size=6)) +
+    geom_segment(linewidth=2, colour="gray") +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="x") +
+    xlab("# independent eQTLs per cell type")
+
+p1 | p2
+```
+
+## Can we identify cell type modules by removing "giant" ubiquitous components?
+
+:::::: {.columns}
+::: {.column width=.8}
+
+
+```{r Fig_celltype_celltype_jaccard, fig.width=4, fig.height=3}
+kk <- eqtl.clust.stat[nsnps < 5000, ]$k
+eqtl.selected <- eqtl.membership[k %in% kk] %>%
+    left_join(mct.top) %>%
+    mutate(w = 1)
+
+.mat <- dcast(eqtl.selected[mct.lfsr < .05 & lfsr < .05 & p.val < 1e-4],
+              id ~ celltype,
+              fun.aggregate = max,
+              value.var = "w",
+              fill = 0)
+
+.df <-
+    take.jaccard(as.matrix(.mat[,-1])) %>%
+    reshape2::melt() %>%
+    mutate(row = Var1, col = Var2, weight = log10(pmax(value, 1e-2))) %>%
+    order.pair(TRUE)
+
+ggplot(.df, aes(col, row, fill=weight)) +
+    geom_tile(linewidth=.1, colour="gray30") +
+    theme(axis.title = element_blank()) +
+    theme(legend.text = element_text(size=4)) +
+    theme(legend.key.width = unit(.2, "lines")) +
+    theme(axis.text.y = element_text(size=4)) +
+    theme(axis.text.x = element_text(size=4, angle=90, vjust=1, hjust=1)) +
+    scale_fill_distiller("Jaccard", palette = "RdPu", direction = 1, label=function(x) round(10^(x), 2))
+```
+
+:::
+::: {.column width=.2}
+
+p-value < 1e-4
+
+LFSR < 5%
+
+:::
+::::::
+
+
+
+
+## Clustering eQTLs by log-odds ratio patterns
+
+```{r prepare_SNP_present_absent_for_clustering}
+lfsr.cutoff <- 0.05
+
+.eqtl.features <-
+    mct.top %>%
+    dcast(`#chromosome_name` + physical.pos + mct.level + LD ~ celltype,
+          value.var = "mct.lodds",
+          fun.aggregate = max, fill = 0)
+
+.eqtls <- .eqtl.features %>%
+    select(`#chromosome_name`, physical.pos, mct.level, LD)
+
+.lodds <- .eqtl.features %>%
+    select(-`#chromosome_name`, -physical.pos, -mct.level, -LD) %>%
+    as.matrix
+
+.pips <- 1/(1+ exp(-.lodds))
+.lodds <- pmin(pmax(.pips, 1e-2), 1 - 1e-2)
+.lodds <- log(.lodds) - log1p(-.lodds)
+```
+
+
+```{r cluster_lodds_by_knn}
+knn <- 50
+knn.graph.file <- ".multi_celltype_lodds_knn_" %&% knn %&% ".rds"
+
+if.needed(knn.graph.file, {
+    annoy <- new(RcppAnnoy::AnnoyAngular, ncol(.lodds))
+    for(i in 1:nrow(.lodds)){
+        annoy$addItem(i-1, .lodds[i,])
+    }
+    annoy$build(50)
+    xx <- c()
+    yy <- c()
+    dd <- c()
+    for(i in 1:nrow(.lodds)){
+        xx <- c(xx, rep(i, knn))
+        neigh <- annoy$getNNsByItem(i-1, knn)
+        neigh.dd <- sapply(neigh, function(j) annoy$getDistance(i-1, j))
+        yy <- c(yy, neigh + 1)
+        dd <- c(dd, neigh.dd)
+    }
+    nn <- nrow(.lodds)
+    mm <- length(xx)
+    A <- Matrix::spMatrix(nrow=nn, ncol=nn, i=xx, j=yy, x=exp(-dd))
+    saveRDS(A, file=knn.graph.file)
+})
+
+graph.clust.file <- ".multi_celltype_lodds_clust_" %&% knn %&% ".rds"
+
+nct <- ncol(.lodds)
+
+if.needed(graph.clust.file, {
+    A <- readRDS(file=knn.graph.file)
+    nct <- ncol(.lodds)
+    A <- A^(1/nct)        # rescale to be smooth
+    A <- (A + t(A))/2     # symetrize
+    G <- igraph::graph_from_adjacency_matrix(A, mode="undirected", weighted=TRUE)
+    clust <- igraph::cluster_louvain(G)
+    saveRDS(clust, graph.clust.file)
+})
+
+clust <- readRDS(graph.clust.file)
+
+eqtl.membership <- .eqtls %>%
+    mutate(k = clust$membership) %>%
+    left_join(mct.top[, .(`#chromosome_name`, physical.pos, mct.level, LD, hgnc_symbol)]) %>%
+    unique()
+
+eqtl.clust.stat <-
+    eqtl.membership[,
+                    .(nsnps = .N, ngenes = .count(hgnc_symbol)),
+                    by = .(k)]
+
+clust.pattern <- left_join(eqtl.membership, mct.top) %>%
+    (function(x) x[, .(mu = mean(mct.lodds), sig = sd(mct.lodds)),
+                   by = .(k, celltype)])
+```
+
+* $\alpha_{jt}$: posterior inclusion probability of a variant $j$ in a cell type level $t$
+* $p^{\textsf{null}}_{j}$: null probability for a variant $j$ (adaptively fit for each gene)
+
+\Large
+
+$$(\alpha_{jt} - p^{\textsf{null}}_{j})\log \alpha_{jt}$$
+
+\normalsize
+
+
+```{r}
+K <- .count(clust.pattern$k)
+```
+
+## `r K` eQTL modules identified by `r nct` cell-type-specific log-odds ratio
+
+```{r Fig_eqtl_lodds_cluster_mat, fig.width = 4.2, fig.height=3}
+.clust.df <-
+    clust.pattern %>%
+    mutate(col = celltype, row = k, weight = mu) %>%
+    order.pair(TRUE)
+
+.clust.order <- sort(unique(.clust.df$row))
+.ct.order <- sort(unique(.clust.df$col))
+
+ggplot(.clust.df, aes(row, col, fill=pmin(pmax(mu, -5), 5))) +
+    theme(axis.text = element_text(size=6)) +
+    theme(legend.text = element_text(size=4)) +
+    theme(legend.title = element_text(size=4)) +
+    theme(legend.key.width = unit(.2, "lines")) +
+    geom_tile(linewidth=.1, colour="gray30") +
+    ylab("cell types") + xlab(K %&% " clusters") +
+    scale_fill_gradient2("average\nlog-odds", low="blue", high="red")
+```
+
+## A large number of eQTLs fall into one group?
+
+```{r Fig_eqtl_lodds_cluster_size, fig.width = 4.2, fig.height=2}
+.df <- eqtl.clust.stat %>%
+    mutate(k = factor(k, .clust.order)) %>%
+    mutate(ng.lab = round(ngenes/1000,1) %&% "k") %>%
+    mutate(ns.lab = round(nsnps/1000,1) %&% "k") %>%
+    arrange(k) %>%
+    mutate(snp.pr = `nsnps`/sum(`nsnps`)) %>%
+    mutate(gene.pr = `ngenes`/sum(`ngenes`)) %>%
+    mutate(cum.snp.pr = cumsum(snp.pr)) %>%
+    mutate(cum.gene.pr = cumsum(gene.pr))
+
+p1 <- ggplot(.df, aes(k, ngenes, label=ng.lab)) + theme_void() +
+    scale_y_sqrt() +
+    geom_bar(stat="identity", fill="gray", linewidth=.1) +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="y", angle=90)
+
+p2 <- ggplot(.df, aes(k, nsnps, label=ns.lab)) + theme_void() +
+    scale_y_sqrt() +
+    geom_bar(stat="identity", fill="gray", linewidth=.1) +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="y", angle=90)
+
+p1/p2
+```
+
+## A large number of eQTLs fall into one group?
+
+```{r Fig_eqtl_lodds_cluster_cum, fig.width=4.2, fig.height=3}
+ggplot(.df, aes(as.integer(k))) +
+    geom_line(aes(y=cum.snp.pr), colour="gray20") +
+    geom_line(aes(y=cum.gene.pr), colour="gray40", lty=2) +
+    geom_text(aes(y=cum.snp.pr, label=round(100*cum.snp.pr)), size=2, hjust=1, vjust=0) +
+    geom_text(aes(y=cum.gene.pr, label=round(100*cum.gene.pr)), size=2, hjust=0, vjust=1) +
+    scale_y_continuous(limits=c(0,1)) +
+    xlab("clusters sorted") + ylab("Fraction of SNPs/genes captured")
+```
+
+##
+
+```{r Fig_celltype_count_eqtl_gene_2, fig.width=5.5, fig.height=3}
+ct.stat <- .count.ct(lfsr.cutoff)
+
+ct.stat$gene.per.ct <- ct.stat$gene.per.ct %>%
+    mutate(celltype = factor(celltype, .ct.order))
+
+ct.stat$id.per.ct <- ct.stat$id.per.ct %>%
+    mutate(celltype = factor(celltype, .ct.order))
+
+.aes <- aes(y=`celltype`, x=`ngene`, yend=`celltype`, xend=0, label=num.int(ngene))
+
+p1 <-
+    ggplot(ct.stat$gene.per.ct, .aes) +
+    theme(axis.text = element_text(size=4), axis.title.y=element_blank()) +
+    theme(axis.title = element_text(size=6)) +
+    scale_x_reverse() +
+    geom_segment(linewidth=2, colour="gray") +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="x") +
+    xlab("# eGenes per cell type")
+
+.aes <- aes(y=`celltype`, x=`nid`, yend=`celltype`, xend=0, label=num.int(nid))
+p2 <-
+    ggplot(ct.stat$id.per.ct, .aes) +
+    theme(axis.text = element_text(size=4)) +
+    theme(axis.title = element_text(size=6)) +
+    geom_segment(linewidth=2, colour="gray") +
+    geom_text_repel(size=2, colour="black", min.segment.length=0, direction="x") +
+    xlab("# independent eQTLs per cell type")
+
+p1 | p2
+```
+
+
+## Can we identify cell type modules by removing "giant" ubiquitous components?
+
+
+:::::: {.columns}
+::: {.column width=.8}
+
+```{r Fig_celltype_celltype_jaccard_2, fig.width=4, fig.height=3}
+kk <- eqtl.clust.stat[nsnps < 5000, ]$k
+eqtl.selected <- eqtl.membership[k %in% kk] %>%
+    left_join(mct.top) %>%
+    mutate(w = 1)
+
+.mat <- dcast(eqtl.selected[mct.lfsr < .05 & lfsr < .05 & p.val < 1e-4],
+              id ~ celltype,
+              fun.aggregate = max,
+              value.var = "w",
+              fill = 0)
+
+.df <-
+    take.jaccard(as.matrix(.mat[,-1])) %>%
+    reshape2::melt() %>%
+    mutate(row = Var1, col = Var2, weight = log10(pmax(value, 1e-2))) %>%
+    order.pair(TRUE)
+
+ggplot(.df, aes(col, row, fill=weight)) +
+    geom_tile(linewidth=.1, colour="gray30") +
+    theme(legend.text = element_text(size=4)) +
+    theme(legend.key.width = unit(.2, "lines")) +
+    theme(axis.title = element_blank()) +
+    theme(axis.text.y = element_text(size=4)) +
+    theme(axis.text.x = element_text(size=4, angle=90, vjust=1, hjust=1)) +
+    scale_fill_distiller("Jaccard", palette = "RdPu", direction = 1, label=function(x) round(10^(x), 2))
+```
+
+:::
+::: {.column width=.2}
+
+p-value < 1e-4
+
+LFSR < 5%
+
+:::
+::::::

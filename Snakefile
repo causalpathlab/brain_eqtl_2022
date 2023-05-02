@@ -217,6 +217,7 @@ TRAITS = [tr.split(".")[0] for tr in
 
 rule step4_dropbox:
     shell:
+        "rsync -argv result/step4/combined/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --size-only --exclude=\"*.vcf\"; "
         "echo \"Done\""
 
 # "mkdir -p ~/Dropbox/AD430/1.Results/5.TWAS;"
@@ -224,7 +225,7 @@ rule step4_dropbox:
 # "mkdir -p ~/Dropbox/AD430/1.Results/4.GWAS;"
 # "rsync -argv result/step4/gwas/*.vcf.gz* ~/Dropbox/AD430/1.Results/4.GWAS/;"
 # "mkdir -p ~/Dropbox/AD430/1.Results/3.eQTL/;"
-# "rsync -argv result/step4/combined/* ~/Dropbox/AD430/1.Results/3.eQTL/ --progress --exclude=\"*.vcf\""
+
 
 rule step4_queue:
     input:
