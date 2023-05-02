@@ -38,6 +38,72 @@ source("Setup.R", )
 setup.env("Fig/multi_celltype/")
 ```
 
+## Multi-cell-type eQTL analysis disentangle multi-cell-type factors
+
+```{r APOE_example, fig.width=5.8, fig.height=3}
+
+lfsr.cutoff <- 0.05
+ld <- 1609
+cis.dist <- 1e6
+p.cutoff <- 1e-3
+
+.mqtl.file <- "../result/step4/mtsusie/allIndv_allPC/" %&% ld %&% ".txt.gz"
+
+.dt <- fread(.mqtl.file)
+
+gene <- "APOE"
+
+.dt.g <- .dt %>% 
+    dplyr::filter(hgnc_symbol == gene, `var` > 1e-4, lfsr < lfsr.cutoff) %>%
+    dplyr::mutate(mct.p.val = 2 * pnorm(abs(z), lower.tail=FALSE)) %>% 
+    as.data.table
+
+.dt.show <-
+    .dt.g %>% 
+    dplyr::filter(mct.p.val < p.cutoff) %>% 
+    dplyr::select(celltype, levels) %>%
+    unique() %>% 
+    dplyr::left_join(.dt.g)
+
+.eqtl.raw <- data.table()
+
+for(ct in unique(.dt.show$celltype)){
+    .eqtl.file <- ("../result/step4/qtl/allIndv_allPC/" %&%
+                   ct %&% "/" %&% ld %&% ".txt.gz")
+    .eqtl <- fread(.eqtl.file) %>%
+        dplyr::filter(hgnc_symbol == gene) %>%
+        dplyr::filter(snp.loc > (tss - cis.dist), snp.loc < (tes + cis.dist)) %>%
+        dplyr::rename(physical.pos = snp.loc) %>% 
+        dplyr::select(physical.pos, tss, tes, beta, se, p.val) %>% 
+        as.data.table
+    .eqtl$celltype <- ct
+    .eqtl.raw <- rbind(.eqtl.raw, .eqtl)
+}
+
+.dt.show <- .dt.show %>%
+    left_join(.eqtl.raw) %>%
+    na.omit()
+
+gene.tss <- min(.eqtl.raw$tss)
+
+.df <- .eqtl.raw %>% mutate(celltype = str_wrap(celltype, width=5))
+.df.show <- .dt.show %>% mutate(celltype = str_wrap(celltype, width=5))
+
+ggplot(.df, aes(physical.pos, -log10(p.val))) +
+    ggtitle(gene) +
+    facet_wrap(~celltype, nrow = 1) +
+    theme(legend.title = element_text(size=6),, legend.text = element_text(size=6), legend.position = "top") +
+    theme(strip.text = element_text(size=5), strip.background = element_blank()) +
+    theme(axis.text = element_text(size=4), axis.title = element_text(size=4)) +
+    ggrastr::rasterize(geom_point(stroke=0, colour="gray30", size=1, alpha=.5), dpi=300) +
+    geom_vline(xintercept = gene.tss, lty=2, linewidth=.1, color="red") +
+    geom_point(aes(size=alpha, fill=as.factor(levels)), data=.df.show, pch=21, stroke=.5, alpha=.5) +
+    scale_x_continuous("genomic poisitions (kb)", labels=function(x) num.int(round(x/1e3))) +
+    scale_size_continuous("PIP",range=c(0,3), limits = c(0,1)) +
+    scale_fill_brewer("indep.\neffect", palette = "Set1") +
+    scale_y_continuous("p-value", labels=function(x) num.sci(10^(-x)), limits=c(0,6))
+```
+
 ```{r helper_functions, include=FALSE}
 .count <- function(...) length(unique(unlist(...)))
 .count.rows <- function(...) nrow(unique(...))
@@ -46,6 +112,7 @@ setup.env("Fig/multi_celltype/")
 ```{r read_data, include=FALSE}
 mct.file.name <- "../result/step4/combined/allIndv_allPC/multi_celltype.vcf.gz"
 mct.dt <- fread(mct.file.name)
+
 ## gene information
 genes <- fread("../result/step1/features_annotated_GRCh37.txt.gz")
 
@@ -69,6 +136,8 @@ nsnps <-
     .count.rows()
 ```
 
+## Overview of multi-cell-type eQTL analysis
+
 \Large
 
 * We consolidated `r num.int(ntot)` unique gene-and-locus pairs that are significantly associated in at least one cell type with local false sign rate (LFSR) 10%.
@@ -78,6 +147,8 @@ nsnps <-
 * Of total `r num.int(ntot)` eQTL-gene pairs, `r num.int(nsnps)` variants were found unique.
 
 \normalsize
+
+
 
 ## How do these top variants break down into multiple cell types?
 
@@ -413,6 +484,7 @@ ggplot(.df, aes(col, row, fill=weight)) +
     geom_tile(linewidth=.1, colour="gray30") +
     theme(axis.title = element_blank()) +
     theme(legend.text = element_text(size=4)) +
+    theme(legend.title = element_text(size=4)) +
     theme(legend.key.width = unit(.2, "lines")) +
     theme(axis.text.y = element_text(size=4)) +
     theme(axis.text.x = element_text(size=4, angle=90, vjust=1, hjust=1)) +
@@ -648,6 +720,7 @@ eqtl.selected <- eqtl.membership[k %in% kk] %>%
 ggplot(.df, aes(col, row, fill=weight)) +
     geom_tile(linewidth=.1, colour="gray30") +
     theme(legend.text = element_text(size=4)) +
+    theme(legend.title = element_text(size=4)) +
     theme(legend.key.width = unit(.2, "lines")) +
     theme(axis.title = element_blank()) +
     theme(axis.text.y = element_text(size=4)) +
