@@ -192,6 +192,10 @@ rule step3_svd_assoc:
         "mkdir -p result/step3/;"
         "Rscript --vanilla script/assoc_svd_pheno.R {input.svd} {input.pheno} {output}"
 
+rule rsync_step3_up:
+    shell:
+        "rsync -argv ./result/step3/*.* numbers:/home/ypark/work/brain_eqtl_2022/result/step3/ --exclude=\"*temp\" --progress --size-only"
+
 #######################
 # Call eQTLs and TWAS #
 #######################
@@ -221,14 +225,24 @@ rule step4_prepare_genetic_data:
         "--psam {input.psam} "
         "--make-bed --out result/step4/rosmap"
 
-rule step4_queue_heritability:
+rule step4_jobs_heritability:
     input:
         expand("jobs/step4/heritability_{nPC}.sh",
                nPC=list(range(10,101,20)) + [100])
 
-rule _step4_queue_heritability_job:
+rule rsync_step4_up:
+    shell:
+        "rsync -argv ./result/step4/rosmap* numbers:/home/ypark/work/brain_eqtl_2022/result/step4/ --exclude=\"*temp\" --progress --size-only"
+
+rule rsync_jobs_up:
+    shell:
+        "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
+
+rule _step4_jobs_heritability:
     input:
         ldfile="data/LD.info.txt",
+        expr="result/step3/log_mean.bed.gz",
+        svd="result/step3/svd.rds",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
     output:
         queue="jobs/step4/heritability_{nPC}.sh"
@@ -239,9 +253,12 @@ rule _step4_queue_heritability_job:
             print_Rjob("heritability",
                        "script/call_heritability_per_ld.R",
                        "result/step4/heritability/PC" + wildcards.nPC,
-                       "",
+                       [input.ldfile, "result/step4/rosmap", input.expr, input.svd],
                        mem=2048,
                        maxtime="2:00:00")
+
+
+
 
 # rule step4_run_heritability:
 #     input:

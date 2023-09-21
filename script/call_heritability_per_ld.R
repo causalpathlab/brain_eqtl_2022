@@ -11,8 +11,8 @@ options(stringsAsFactors = FALSE)
 
 if(length(argv) < 7) q()
 
-ld.file <- argv[1]
-ld.index <- as.integer(argv[2])
+ld.index <- as.integer(argv[1])
+ld.file <- argv[2]
 geno.hdr <- argv[3]
 expr.file <- argv[4]
 svd.file <- argv[5]

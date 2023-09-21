@@ -49,4 +49,4 @@ fi
      "maxID": maxId,
      "EXE": scriptName,
      "outdir": outDir,
-     "ARGV": argv})
+     "ARGV": " ".join(argv)})
