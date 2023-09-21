@@ -38,7 +38,7 @@ source("Setup.R", )
 setup.env("Fig/multi_celltype/")
 ```
 
-## Multi-cell-type eQTL analysis disentangle multi-cell-type factors
+## Multi-cell-type eQTL analysis to disentangle multi-cell-type factors
 
 ```{r APOE_example, fig.width=5.8, fig.height=3}
 
@@ -140,7 +140,7 @@ nsnps <-
 
 \Large
 
-* We consolidated `r num.int(ntot)` unique gene-and-locus pairs that are significantly associated in at least one cell type with local false sign rate (LFSR) 10%.
+* We consolidated `r num.int(ntot)` unique gene-and-locus pairs that are significantly associated in at least one cell type with local false sign rate (LFSR) `r 100*lfsr.cutoff`%
 
 * We identified eQTLs for `r num.int(ngenes)` unique genes out of total `r num.int(nrow(genes))` genes
 
@@ -363,6 +363,18 @@ clust.pattern <- left_join(eqtl.membership, mct.top) %>%
 K <- .count(clust.pattern$k)
 ```
 
+## File sharing
+
+```{r results="asis"}
+.file <- "multi_celltype_zscore_clust_50.txt.gz"
+if.needed(.file,{
+    fwrite(eqtl.membership, file = .file, sep=",", row.names = FALSE, col.names = TRUE)
+})
+cat(paste0("[Clustering Summary File](", .file, ")\n"))
+```
+
+
+
 ## `r K` eQTL modules identified by `r nct` cell-type-specific patterns
 
 ```{r Fig_eqtl_zscore_cluster_mat, fig.width = 5.5, fig.height=3}
@@ -502,8 +514,6 @@ LFSR < 5%
 ::::::
 
 
-
-
 ## Clustering eQTLs by log-odds ratio patterns
 
 ```{r prepare_SNP_present_absent_for_clustering}
@@ -597,6 +607,16 @@ $$(\alpha_{jt} - p^{\textsf{null}}_{j})\log \alpha_{jt}$$
 
 ```{r}
 K <- .count(clust.pattern$k)
+```
+
+## File sharing
+
+```{r results="asis"}
+.file <- "multi_celltype_lodds_clust_50.txt.gz"
+if.needed(.file,{
+    fwrite(eqtl.membership, file = .file, sep=",", row.names = FALSE, col.names = TRUE)
+})
+cat(paste0("[Clustering Summary File](", .file, ")\n"))
 ```
 
 ## `r K` eQTL modules identified by `r nct` cell-type-specific log-odds ratio
