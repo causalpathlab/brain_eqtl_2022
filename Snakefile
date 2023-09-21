@@ -253,12 +253,9 @@ rule _step4_jobs_heritability:
             print_Rjob("heritability",
                        "script/call_heritability_per_ld.R",
                        "result/step4/heritability/PC" + wildcards.nPC,
-                       [input.ldfile, "result/step4/rosmap", input.expr, input.svd],
+                       [input.ldfile, "result/step4/rosmap", input.expr, input.svd, wildcards.nPC],
                        mem=2048,
                        maxtime="2:00:00")
-
-
-
 
 # rule step4_run_heritability:
 #     input:

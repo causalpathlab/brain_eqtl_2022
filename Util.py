@@ -16,8 +16,7 @@ def list_files(dir_, pattern = None, full_name = True):
     return ret
 
 def print_Rjob(jobname, scriptName, outDir, argv, mem = 1024, maxtime = "1:00:00", minId=1, maxId=1703):
-    print("""
-#!/bin/bash -l
+    print("""#!/bin/bash -l
 #SBATCH -o .log
 #SBATCH -e .log
 #SBATCH -D ./
