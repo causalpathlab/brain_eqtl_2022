@@ -15,7 +15,10 @@ def list_files(dir_, pattern = None, full_name = True):
 
     return ret
 
-def print_Rjob(jobname, scriptName, outDir, argv, mem = 1024, maxtime = "1:00:00", minId=1, maxId=1703):
+def print_Rjob(jobname: str, scriptName: str, outDir: str, argv: list,
+               mem = 1024, maxtime = "1:00:00",
+               minId=1, maxId=1703,
+               file_ext="txt.gz"):
     print("""#!/bin/bash -l
 #SBATCH -o .log
 #SBATCH -e .log
@@ -32,7 +35,7 @@ mkdir -p ${logdir}/
 
 jobid=${SLURM_ARRAY_TASK_ID}
 
-outfile=%(outdir)s/${jobid}.txt.gz
+outfile=%(OUTDIR)s/${jobid}.%(EXT)s
 mkdir -p $(dirname $outfile)
 logfile=${logdir}/$(echo $outfile | awk '{ gsub("/","_"); print }')
 [ -f $logfile ] && rm $logfile
@@ -47,5 +50,6 @@ fi
      "minID": minId,
      "maxID": maxId,
      "EXE": scriptName,
-     "outdir": outDir,
-     "ARGV": " ".join(argv)})
+     "OUTDIR": outDir,
+     "EXT": file_ext,
+     "ARGV": " ".join(map(str, argv))})
