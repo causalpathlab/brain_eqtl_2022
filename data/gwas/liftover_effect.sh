@@ -18,6 +18,7 @@ outfile=$5
 mkdir -p $(dirname $outfile)
 coord=$(dirname $outfile)/$(basename $outfile .gz)_coord.gz
 lifted=$(dirname $outfile)/$(basename $outfile .gz)_lifted
+sorted=$(dirname $outfile)/$(basename $outfile .gz)_sorted
 
 tempdir=${outfile}_temp
 mkdir -p $tempdir
@@ -44,7 +45,7 @@ cat $infile | gzip -cd | head -n1 | \
         }
     }
     printf "\n";
-}' | bgzip -c > $outfile
+}' > $sorted
 
 cat $infile | gzip -cd | tail -n+2 | \
     awk -vLIFTED=${lifted} -vCHR=$CHR_COL -vPOS=$POS_COL -F'\t' \
@@ -67,12 +68,15 @@ cat $infile | gzip -cd | tail -n+2 | \
         }
         printf "\n";
     }
-}' | sort -T ${tempdir} -k1,1 -k2,2n | bgzip -c >> $outfile
+}' | sort -T ${tempdir} -k1,1 -k2,2n >> $sorted
 
 echo "Finished sorting"
 
+cat $sorted | bgzip -c > $outfile
+
 [ -f $lifted ] && rm ${lifted} ${lifted}_remove
 [ -f $coord ] && rm $coord
+[ -f $sorted ] && rm $sorted
 [ -d $tempdir ] && rm -r $tempdir
 
 echo "Done"

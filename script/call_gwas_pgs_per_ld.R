@@ -15,6 +15,7 @@ geno.hdr <- argv[3]
 gwas.file <- argv[4]
 out.file <- argv[5]
 
+cv.file <- gsub(".pgs.gz", ".cv.gz", out.file)
 temp.dir <- paste0(out.file, "_temp")
 max.K <- 100
 nrepeat <- 20
@@ -261,6 +262,5 @@ out.dt <-
 
 fwrite(out.dt, out.file, sep = "\t", row.names = F, col.names = T)
 
-cv.file <- gsub(".pgs.gz", ".cv.gz", out.file)
 cv.out.dt <- cbind(ld = ld.index, cv.summary)
 fwrite(cv.out.dt, cv.file, sep = "\t", row.names = F, col.names = T)

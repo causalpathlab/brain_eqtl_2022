@@ -240,14 +240,17 @@ rule step4_post_ld_jobs:
 rule step4_jobs:
     input:
         expand("jobs/step4/heritability_{nPC}.sh",  nPC=COVAR_PCs),
+        expand("jobs/step4/qtl_{nPC}.sh",  nPC=37),
         expand("jobs/step4/gwas_pgs_{gwas}.sh",  gwas="AD")
 
 rule rsync_step4_up:
     shell:
         "rsync -argv ./result/step4/rosmap* numbers:/home/ypark/work/brain_eqtl_2022/result/step4/ --exclude=\"*temp\" --progress --size-only"
 
-rule rsync_step4_herit_down:
+rule rsync_step4_down:
     shell:
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/gwas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/heritability ./result/step4/ --exclude=\"*temp\" --progress --size-only"
 
 rule rsync_jobs_up:
@@ -273,6 +276,25 @@ rule _step4_jobs_gwas_pgs:
                        maxtime="2:00:00",
                        file_ext="pgs.gz")
 
+rule _step4_jobs_qtl:
+    input:
+        ldfile="data/LD.info.txt",
+        expr="result/step3/log_mean.bed.gz",
+        svd="result/step3/svd.rds",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        queue="jobs/step4/qtl_{nPC}.sh"
+    run:
+        mkdir("jobs/step4")
+        with open(output.queue, "w") as fh:
+            sys.stdout = fh
+            print_Rjob("qtl",
+                       "script/call_qtl_per_ld.R",
+                       "result/step4/qtl/PC" + wildcards.nPC,
+                       [input.ldfile, "result/step4/rosmap", input.expr, input.svd, wildcards.nPC],
+                       mem=2048,
+                       maxtime="4:00:00")
+
 rule _step4_jobs_heritability:
     input:
         ldfile="data/LD.info.txt",
@@ -291,6 +313,7 @@ rule _step4_jobs_heritability:
                        [input.ldfile, "result/step4/rosmap", input.expr, input.svd, wildcards.nPC],
                        mem=2048,
                        maxtime="10:00:00")
+
 
 
 # rule step4_run_heritability:

@@ -6,6 +6,7 @@ options(stringsAsFactors = FALSE)
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## svd.file <- "result/step3/svd.rds"
+## max.K <- 37
 ## out.file <- "output.txt.gz"
 
 if(length(argv) < 7) q()
@@ -258,6 +259,26 @@ for(gene in genes){
         dplyr::mutate(gene) %>%
         na.omit() %>%
         as.data.table()
+
+    ## quick TWAS
+
+    ## .mu <- susie.best %>%
+    ##     mutate(mu = `alpha` * `mean`) %>% 
+    ##     dcast(x.col ~ y.col, value.var = "mu", fill = 0)
+
+    ## .xx <- apply(plink$bed[, .mu$x.col, drop = F], 2, scale)
+    ## .xx[is.na(.xx)] <- 0
+    ## .y.hat <- .xx %*% as.matrix(.mu[, -1])
+    ## rownames(.y.hat) <- plink$fam[,2]
+
+    ## .match <- match(rownames(.y.hat), as.character(gwas.dt$iid))
+    ## .gwas <- as.matrix(gwas.dt[.match, .(y)])
+    ## .cts <- y.dt[match(colnames(.y.hat), y.dt$y.col)]$celltype
+
+    ## twas.stat <-
+    ##     take.marginal.stat(.y.hat, .gwas) %>%
+    ##     left_join(data.table(x.col = 1:length(.cts), celltype = .cts)) %>%
+    ##     select(-y.col, -x.col)
 
     message("Computed: ", gene)
 
