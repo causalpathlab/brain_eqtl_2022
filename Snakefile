@@ -200,9 +200,12 @@ rule rsync_step3_up:
 # Call eQTLs and TWAS #
 #######################
 
+COVAR_PCs = list(range(10,50)) + list(range(50,101,10)) + [100]
+
 rule step4:
     input:
-        expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+        expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
+        expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_PCs)
 
 ###############################
 # genotype Q/C and queue jobs #
@@ -225,18 +228,50 @@ rule step4_prepare_genetic_data:
         "--psam {input.psam} "
         "--make-bed --out result/step4/rosmap"
 
-rule step4_jobs_heritability:
+rule step4_post_ld_jobs:
+    output: "result/step4/combined/{jobname}.txt.gz"
+    params:
+        ddir = lambda w: "/".join(w.jobname.split("_")[1:]),
+        taboo = lambda w: w.jobname.split("_")[0]
+    shell:
+        "mkdir -p result/step4/combined/; "
+        "cat result/step4/{params.ddir}/*.txt.gz | gzip -cd | awk 'NR == 1 || $1 != \"{params.taboo}\"' | gzip -c > {output}"
+
+rule step4_jobs:
     input:
-        expand("jobs/step4/heritability_{nPC}.sh",
-               nPC=list(range(10,101,20)) + [100])
+        expand("jobs/step4/heritability_{nPC}.sh",  nPC=COVAR_PCs),
+        expand("jobs/step4/gwas_pgs_{gwas}.sh",  gwas="AD")
 
 rule rsync_step4_up:
     shell:
         "rsync -argv ./result/step4/rosmap* numbers:/home/ypark/work/brain_eqtl_2022/result/step4/ --exclude=\"*temp\" --progress --size-only"
 
+rule rsync_step4_herit_down:
+    shell:
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/heritability ./result/step4/ --exclude=\"*temp\" --progress --size-only"
+
 rule rsync_jobs_up:
     shell:
         "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
+
+rule _step4_jobs_gwas_pgs:
+    input:
+        ldfile="data/LD.info.txt",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
+        gwas_dir="data/gwas/",
+    output:
+        queue="jobs/step4/gwas_pgs_{gwas}.sh"
+    run:
+        mkdir("jobs/step4")
+        with open(output.queue, "w") as fh:
+            sys.stdout = fh
+            print_Rjob("gwas_pgs",
+                       "script/call_gwas_pgs_per_ld.R",
+                       "result/step4/gwas/" + wildcards.gwas + "/",
+                       [input.ldfile, "result/step4/rosmap", (input.gwas_dir + "/" + wildcards.gwas + ".vcf.gz")],
+                       mem=2048,
+                       maxtime="2:00:00",
+                       file_ext="pgs.gz")
 
 rule _step4_jobs_heritability:
     input:
@@ -255,7 +290,8 @@ rule _step4_jobs_heritability:
                        "result/step4/heritability/PC" + wildcards.nPC,
                        [input.ldfile, "result/step4/rosmap", input.expr, input.svd, wildcards.nPC],
                        mem=2048,
-                       maxtime="2:00:00")
+                       maxtime="10:00:00")
+
 
 # rule step4_run_heritability:
 #     input:

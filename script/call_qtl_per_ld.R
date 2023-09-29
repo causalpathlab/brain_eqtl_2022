@@ -8,14 +8,15 @@ options(stringsAsFactors = FALSE)
 ## svd.file <- "result/step3/svd.rds"
 ## out.file <- "output.txt.gz"
 
-if(length(argv) < 6) q()
+if(length(argv) < 7) q()
 
 ld.index <- as.integer(argv[1])
 ld.file <- argv[2]
 geno.hdr <- argv[3]
 expr.file <- argv[4]
 svd.file <- argv[5]
-out.file <- argv[6]
+max.K <- argv[6]
+out.file <- argv[7]
 
 temp.dir <- paste0(out.file, "_temp")
 
@@ -205,7 +206,7 @@ for(gene in genes){
 
     Y <- Y[, observed >= .10, drop = F]
 
-    covar <- apply(.svd.covar$u[rownames(Y), ], 2, scale)
+    covar <- apply(.svd.covar$u[rownames(Y), 1:max.K, drop = FALSE], 2, scale)
 
     .lm <- .safe.lm(Y, covar)
 
