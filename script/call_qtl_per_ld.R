@@ -293,15 +293,13 @@ if(nrow(output) < 1){
         output %>%
         dplyr::select(`chromosome`, `physical.pos`, `levels`,
                       `gene`, `celltype`, `beta`, `se`, `n`, `p.val`,
-                      `alpha`, `mean`, `var`, `lbf`, `z`, `lodds`, `lfsr`,
-                      `svd.k`, `corr`) %>%
+                      `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`) %>%
         dplyr::mutate(`alpha` = round(`alpha`, 4),
                       `mean` = round(`mean`, 4),
                       `lbf` = round(`lbf`, 4),
                       `z` = round(`z`, 4),
                       `lodds` = round(`lodds`, 4),
-                      `lfsr` = round(`lfsr`, 4),
-                      `corr` = round(`corr`, 4)) %>% 
+                      `lfsr` = round(`lfsr`, 4)) %>% 
         arrange(chromosome, physical.pos) %>%
         dplyr::rename(`#chromosome` = `chromosome`) %>%
         as.data.table()
