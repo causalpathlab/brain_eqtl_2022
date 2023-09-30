@@ -219,6 +219,12 @@ unlink(temp.dir, recursive=TRUE)
 qtl.file <- qtl.dir %&% "/" %&% ld.index %&% ".txt.gz"
 qtl.dt <- fread(qtl.file)
 
+if(nrow(qtl.dt) < 1){
+    fwrite(data.table(), file=out.file, sep="\t")
+    message("Empty QTL statistics after Q/C")
+    q()
+}
+
 qtl.mu.dt <- qtl.dt %>%
     filter(lfsr < lfsr.cutoff) %>%
     mutate(mu = `mean` * `alpha`)
