@@ -251,13 +251,11 @@ rownames(qtl.pgs) <- plink$fam$sample.ID
 
 message("Estimated polygenic scores derived from QTL")
 
-max.K <- 150
-x.svd <- rsvd::rsvd(xx, k=min(max.K, ncol(xx)))
-
 gwas.cv.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".cv.gz"
 gwas.cv.dt <- fread(gwas.cv.file)
 
 max.K <- which.max(gwas.cv.dt$rr.mean)
+x.svd <- rsvd::rsvd(xx, k=min(max.K, ncol(xx)))
 geno.pc <- x.svd$u[, 1:min(ncol(x.svd$u), max.K), drop = F]
 
 message("Remove ", ncol(geno.pc), " population PC(s)")
