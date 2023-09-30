@@ -245,8 +245,11 @@ rownames(qtl.pgs) <- plink$fam$sample.ID
 
 message("Estimated polygenic scores derived from QTL")
 
+max.K <- 150
 x.svd <- rsvd::rsvd(xx, k=min(max.K, ncol(xx)))
-pve <- cumsum(x.svd$d^2)/sum(x.svd$d^2)
+
+gwas.cv.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".cv.gz"
+gwas.cv.dt <- fread(gwas.cv.file)
 
 max.K <- which.max(gwas.cv.dt$rr.mean)
 geno.pc <- x.svd$u[, 1:min(ncol(x.svd$u), max.K), drop = F]
@@ -259,9 +262,6 @@ message("Adjusted population structures in TWAS")
 
 gwas.pgs.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".pgs.gz"
 gwas.pgs.dt <- fread(gwas.pgs.file)
-
-gwas.cv.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".cv.gz"
-gwas.cv.dt <- fread(gwas.cv.file)
 
 gwas.pgs <-
     gwas.pgs.dt[match(plink$fam$sample.ID, `iid`), .(y)] %>%

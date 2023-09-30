@@ -241,6 +241,7 @@ rule step4_jobs:
     input:
         expand("jobs/step4/heritability_{nPC}.sh",  nPC=COVAR_PCs),
         expand("jobs/step4/qtl_{nPC}.sh",  nPC=37),
+        expand("jobs/step4/twas_{gwas}_{nPC}.sh",  gwas="AD", nPC=37),
         expand("jobs/step4/gwas_pgs_{gwas}.sh",  gwas="AD")
 
 rule rsync_step4_up:
@@ -275,6 +276,25 @@ rule _step4_jobs_gwas_pgs:
                        mem=2048,
                        maxtime="2:00:00",
                        file_ext="pgs.gz")
+
+rule _step4_jobs_twas:
+    input:
+        ldfile="data/LD.info.txt",
+        qtl_dir="result/step4/qtl/",
+        gwas_dir="result/step4/gwas/",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        queue="jobs/step4/twas_{gwas}_{nPC}.sh"
+    run:
+        mkdir("jobs/step4")
+        with open(output.queue, "w") as fh:
+            sys.stdout = fh
+            print_Rjob("twas",
+                       "script/call_twas_per_ld.R",
+                       "result/step4/twas/" + wildcards.gwas + "/PC" + wildcards.nPC,
+                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_dir + "/" + wildcards.gwas],
+                       mem=2048,
+                       maxtime="4:00:00")
 
 rule _step4_jobs_qtl:
     input:
