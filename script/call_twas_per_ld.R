@@ -20,7 +20,7 @@ gwas.pgs.dir <- argv[6]
 out.file <- argv[7]
 
 lfsr.cutoff <- .05
-top.QTL.PC <- 5
+top.geno.PC <- 10
 
 ################################################################
 
@@ -254,21 +254,6 @@ qtl.pgs <- xx %*% as.matrix(qtl.mu[, -1])
 colnames(qtl.pgs) <- colnames(qtl.mu)[-1]
 rownames(qtl.pgs) <- plink$fam$sample.ID
 
-qtl.z <-
-    dcast(qtl.mu.dt,
-          physical.pos ~ celltype + gene,
-          fill = 0,
-          value.var = "beta.z")
-
-.match <- match(qtl.z$physical.pos, plink$map$physical.pos)
-xx <- safe.scale(plink$bed)[, .match, drop = F]
-
-max.K <- min(ncol(xx), top.QTL.PC)
-.svd <- rsvd::rsvd(xx, max.K)
-qtl.cf.pgs <-
-    svd.pgs(.svd, max.K, as.matrix(qtl.z[, -1])) %>%
-    safe.scale()
-
 message("Estimated polygenic scores derived from QTL")
 
 gwas.pgs.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".pgs.gz"
@@ -280,11 +265,16 @@ gwas.pgs.raw <-
 
 message("Read GWAS PGS results")
 
-knn.qtl <- FNN::get.knn(qtl.cf.pgs, 1)
-gwas.pgs.cf <- gwas.pgs.raw[unlist(knn.qtl$nn.index), , drop = F]
+## knn.qtl <- FNN::get.knn(qtl.cf.pgs, 1)
+## gwas.pgs.cf <- gwas.pgs.raw[unlist(knn.qtl$nn.index), , drop = F]
+## message("Remove QTL PC(s) from GWAS PGS")
+
+.svd <- rsvd::rsvd(safe.scale(plink$bed), k = top.geno.PC)
+knn.geno <- FNN::get.knn(safe.scale(.svd$u), 1)
+gwas.pgs.cf <- gwas.pgs.raw[unlist(knn.geno$nn.index), , drop = F]
 gwas.pgs <- .safe.lm(Y = gwas.pgs.raw, C = gwas.pgs.cf)$residuals
 
-message("Remove QTL PC(s) from GWAS PGS")
+message("Remove top genotype PC(s) from GWAS PGS")
 
 col.dt <-
     data.table(col = colnames(qtl.pgs)) %>%

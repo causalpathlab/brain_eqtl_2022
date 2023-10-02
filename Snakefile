@@ -307,6 +307,25 @@ rule _step4_jobs_gwas_pgs:
                        maxtime="2:00:00",
                        file_ext="pgs.gz")
 
+rule step4_run_twas:
+    input:
+        expand("result/step4/twas/{gwas}/PC{nPC}/{ld}.txt.gz",
+               ld=range(1,1704),
+               gwas="AD",
+               nPC=37)
+
+rule _step4_run_twas:
+    input:
+        ldfile="data/LD.info.txt",
+        qtl_dir="result/step4/qtl/",
+        gwas_dir="result/step4/gwas/",
+        gwas_stat_dir="data/gwas",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/twas/{gwas}/PC{nPC}/{ld}.txt.gz"
+    shell:
+        "Rscript --vanilla script/call_twas_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {input.gwas_dir}/{wildcards.gwas} {output}"
+
 rule _step4_jobs_twas:
     input:
         ldfile="data/LD.info.txt",
@@ -365,43 +384,3 @@ rule _step4_jobs_heritability:
                        mem=2048,
                        maxtime="10:00:00")
 
-
-
-# rule step4_run_heritability:
-#     input:
-#         expand("result/step4/heritability/PC{nPC}/{ld}.txt.gz",
-#                nPC=list(range(10,101,20)) + [100],
-#                ld=range(1,1704))
-
-# rule _step4_run_heritability_job:
-#     input:
-#         ldfile="data/LD.info.txt",
-#         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-#     output: "result/step4/heritability/PC{nPC}/{ld}.txt.gz"
-#     shell:
-#         "mkdir -p result/step4/heritability/PC{wildcards.nPC}/; "
-#         "nice Rscript --vanilla script/call_heritability_per_ld.R {input.ldfile} {wildcards.ld} result/step4/rosmap result/step3/log_mean.bed.gz result/step3/svd.rds {wildcards.nPC} {output}"
-
-# rule step4_run_qtl:
-#     input:
-#         expand("result/step4/qtl/{ld}.txt.gz",
-#                ld=range(1,1704))
-
-# rule _step4_run_qtl_job:
-#     input:
-#         ld="data/LD.info.txt",
-#         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-#     output: "result/step4/qtl/{ld}.txt.gz"
-#     shell:
-#         "mkdir -p result/step4/qtl/; "
-#         "Rscript --vanilla script/call_qtl_per_ld.R {input.ld} {wildcards.ld} result/step4/rosmap result/step3/log_mean.bed.gz result/step3/svd.rds {output}"
-
-# rule _step4_run_iqtl_job:
-#     input:
-#         ld="data/LD.info.txt",
-#         pheno="data/metadata_PFC_all_individuals_092520.tsv.gz",
-#         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-#     output: "result/step4/iqtl/{ld}.txt.gz"
-#     shell:
-#         "mkdir -p result/step4/iqtl/; "
-#         "Rscript --vanilla script/call_iqtl_per_ld.R {input.ld} {wildcards.ld} result/step4/rosmap result/step3/log_mean.bed.gz result/step3/svd.rds {input.pheno} {output}"
