@@ -306,7 +306,8 @@ message("PGS-based TWAS calculation")
 
 gwas.dt <-
     read.gwas(gwas.stat.file, .query) %>%
-    mutate(physical.pos = position)
+    mutate(physical.pos = position) %>%
+    as.data.table()
 
 message("Read GWAS summary statistics")
 
@@ -318,30 +319,31 @@ create.twas.dt <- function(qtl.mu, gwas.dt, plink){
 
     ## match with plink
     merged <-
-        as.data.table(qtl.mu)[, .(physical.pos)] %>%
-        left_join(plink$map) %>%
-        left_join(gwas.dt) %>%
+        left_join(plink$map, gwas.dt) %>%
+        na.omit() %>% 
         as.data.table()
 
     if(nrow(merged) < 1) {
-        fwrite(data.table(), file=out.file, sep="\t")
-        message("Empty GWAS results")
-        q()
+        return(data.table())
     }
 
     merged[effect_allele == allele1, beta.flip := beta]
     merged[effect_allele == allele2, beta.flip := -beta]
     merged[is.na(beta.flip), beta.flip := 0]
+    merged[, z := `beta.flip`/`standard_error`]
 
-    zz <- matrix(merged$beta.flip / merged$standard_error, ncol = 1)
+    zz <- merged[order(abs(`z`), decreasing = T), head(.SD, 1), by = .(physical.pos)]
+    zz <- as.data.table(qtl.mu)[, .(physical.pos)] %>%
+        left_join(zz)
+    zz <- as.matrix(zz[, .(z)])
     zz[is.na(zz)] <- 0
-    .match <- match(merged$physical.pos, plink$map$physical.pos)
+
+    .match <- match(qtl.mu$physical.pos, plink$map$physical.pos)
     xx <- safe.scale(plink$bed)[, .match, drop = F]
-    .mu <- as.matrix(qtl.mu[, -1])
+    .mu <- as.matrix(qtl.mu[, -1, drop = F])
     .svd <- rsvd::rsvd(xx/sqrt(nrow(xx)))
 
     compute.twas(.svd, .mu, zz, pve.cutoff = .9)
-
 }
 
 stwas.stat <- create.twas.dt(qtl.mu, gwas.dt, plink)
