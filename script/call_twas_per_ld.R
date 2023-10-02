@@ -5,19 +5,22 @@ argv <- commandArgs(trailingOnly = TRUE)
 ## ld.file <- "data/LD.info.txt"
 ## geno.hdr <- "result/step4/rosmap"
 ## qtl.dir <- "result/step4/qtl/PC37/"
+## gwas.stat.file <- "data/gwas/AD.vcf.gz"
 ## gwas.pgs.dir <- "result/step4/gwas/AD/"
 ## out.file <- "output.txt.gz"
 
-if(length(argv) < 6) q()
+if(length(argv) < 7) q()
 
 ld.index <- as.integer(argv[1])
 ld.file <- argv[2]
 geno.hdr <- argv[3]
 qtl.dir <- argv[4]
-gwas.pgs.dir <- argv[5]
-out.file <- argv[6]
+gwas.stat.file <- argv[5]
+gwas.pgs.dir <- argv[6]
+out.file <- argv[7]
 
 lfsr.cutoff <- .05
+top.QTL.PC <- 5
 
 ################################################################
 
@@ -63,35 +66,12 @@ subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
     return(plink)
 }
 
-.safe.lm <- function(Y, C){
-    Y.resid <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
-    Y.fitted <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
-    for(j in 1:ncol(Y)){
-        .lm <- lm(Y[, j] ~ C, na.action = "na.exclude")
-        Y.resid[,j] <- residuals(.lm)
-        Y.fitted[,j] <- fitted(.lm)
-    }
-    rownames(Y.resid) <- rownames(Y)
-    rownames(Y.fitted) <- rownames(Y)
-    colnames(Y.resid) <- colnames(Y)
-    colnames(Y.fitted) <- colnames(Y)
-    list(fitted = Y.fitted, residuals = Y.resid)
-}
-
-read.gwas <- function(gwas.file, .query){
-
-    .ret.1 <- fread(cmd="tabix " %&% gwas.file %&% " chr" %&% .query %&% " -h", sep = "\t")
-    .ret <- fread(cmd="tabix " %&% gwas.file %&% " " %&% .query %&% " -h", sep = "\t")
-
-    print(gwas.file)
-
-    .ret <- rbind(.ret, .ret.1) %>%
-        as.data.table()
-
-    .trait <- gsub(".vcf.gz$", "", basename(gwas.file))
-    .ret[, trait := .trait]
-    return(.ret[, .(position, variant_id, p_value, effect_allele, other_allele,
-                    beta, standard_error)])
+fast.z <- function (x, y)
+{
+    n.obs <- crossprod(!is.na(x), !is.na(y))
+    ret <- crossprod(replace(x, is.na(x), 0), replace(y, is.na(y), 0))/sqrt(n.obs)
+    ret[is.na(ret)] <- 0
+    return(ret)
 }
 
 .safe.lm <- function(Y, C){
@@ -166,6 +146,13 @@ take.marginal.stat <- function(xx, yy, se.min=1e-8) {
     return(out)
 }
 
+svd.pgs <- function(.svd, k, zz){
+    lambda <- 1/nrow(.svd$u)
+    udinv.k <- sweep(.svd$u[, 1:k, drop = F], 2, 1/.svd$d[1:k] + lambda, `*`)
+    vz.k <- t(.svd$v[, 1:k, drop = F]) %*% zz
+    udinv.k %*% vz.k
+}
+
 .quantile.norm <- function(.mat) {
     stopifnot(is.matrix(.mat))
     ret <- .mat
@@ -196,10 +183,27 @@ compute.twas <- function(.svd, .mu, zz, pve.cutoff = .9){
     .num <- as.numeric(t(.mu) %*% zz)
     .denom <- apply(mu.vd, 1, function(x) sqrt(sum(x^2) + lambda))
     data.table(col = colnames(.mu),
-               twas.num = .num,
-               twas.denom = .denom,
-               twas.z = .num/.denom)
+               stwas.num = .num,
+               stwas.denom = .denom,
+               stwas.z = .num/.denom)
 }
+
+read.gwas <- function(gwas.file, .query){
+
+    .ret.1 <- fread(cmd="tabix " %&% gwas.file %&% " chr" %&% .query %&% " -h", sep = "\t")
+    .ret <- fread(cmd="tabix " %&% gwas.file %&% " " %&% .query %&% " -h", sep = "\t")
+
+    print(gwas.file)
+
+    .ret <- rbind(.ret, .ret.1) %>%
+        as.data.table()
+
+    .trait <- gsub(".vcf.gz$", "", basename(gwas.file))
+    .ret[, trait := .trait]
+    return(.ret[, .(position, variant_id, p_value, effect_allele, other_allele,
+                    beta, standard_error)])
+}
+
 
 ################################################################
 
@@ -227,7 +231,8 @@ if(nrow(qtl.dt) < 1){
 
 qtl.mu.dt <- qtl.dt %>%
     filter(lfsr < lfsr.cutoff) %>%
-    mutate(mu = `mean` * `alpha`)
+    mutate(mu = `mean` * `alpha`) %>%
+    mutate(beta.z = `beta` / `se`)
 
 if(nrow(qtl.mu.dt) < 1){
     fwrite(data.table(), file=out.file, sep="\t")
@@ -249,29 +254,37 @@ qtl.pgs <- xx %*% as.matrix(qtl.mu[, -1])
 colnames(qtl.pgs) <- colnames(qtl.mu)[-1]
 rownames(qtl.pgs) <- plink$fam$sample.ID
 
+qtl.z <-
+    dcast(qtl.mu.dt,
+          physical.pos ~ celltype + gene,
+          fill = 0,
+          value.var = "beta.z")
+
+.match <- match(qtl.z$physical.pos, plink$map$physical.pos)
+xx <- safe.scale(plink$bed)[, .match, drop = F]
+
+max.K <- min(ncol(xx), top.QTL.PC)
+.svd <- rsvd::rsvd(xx, max.K)
+qtl.cf.pgs <-
+    svd.pgs(.svd, max.K, as.matrix(qtl.z[, -1])) %>%
+    safe.scale()
+
 message("Estimated polygenic scores derived from QTL")
-
-gwas.cv.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".cv.gz"
-gwas.cv.dt <- fread(gwas.cv.file)
-
-max.K <- which.max(gwas.cv.dt$rr.mean)
-x.svd <- rsvd::rsvd(xx, k=min(max.K, ncol(xx)))
-geno.pc <- x.svd$u[, 1:min(ncol(x.svd$u), max.K), drop = F]
-
-message("Remove ", ncol(geno.pc), " population PC(s)")
-
-qtl.pgs <- .safe.lm(qtl.pgs, geno.pc)$residuals
-
-message("Adjusted population structures in TWAS")
 
 gwas.pgs.file <- gwas.pgs.dir %&% "/" %&% ld.index %&% ".pgs.gz"
 gwas.pgs.dt <- fread(gwas.pgs.file)
 
-gwas.pgs <-
+gwas.pgs.raw <-
     gwas.pgs.dt[match(plink$fam$sample.ID, `iid`), .(y)] %>%
     as.matrix()
 
 message("Read GWAS PGS results")
+
+knn.qtl <- FNN::get.knn(qtl.cf.pgs, 1)
+gwas.pgs.cf <- gwas.pgs.raw[unlist(knn.qtl$nn.index), , drop = F]
+gwas.pgs <- .safe.lm(Y = gwas.pgs.raw, C = gwas.pgs.cf)$residuals
+
+message("Remove QTL PC(s) from GWAS PGS")
 
 col.dt <-
     data.table(col = colnames(qtl.pgs)) %>%
@@ -289,6 +302,54 @@ twas.stat <-
     select(`ld`, `gene`, `celltype`, `beta`, `se`, `n`, `p.val`) %>%
     as.data.table()
 
-fwrite(twas.stat, out.file, sep = "\t", col.names = T, row.names = F)
+message("PGS-based TWAS calculation")
+
+gwas.dt <-
+    read.gwas(gwas.stat.file, .query) %>%
+    mutate(physical.pos = position)
+
+message("Read GWAS summary statistics")
+
+#####################################
+## conventional summary-based TWAS ##
+#####################################
+
+create.twas.dt <- function(qtl.mu, gwas.dt, plink){
+
+    ## match with plink
+    merged <-
+        as.data.table(qtl.mu)[, .(physical.pos)] %>%
+        left_join(plink$map) %>%
+        left_join(gwas.dt) %>%
+        as.data.table()
+
+    if(nrow(merged) < 1) {
+        fwrite(data.table(), file=out.file, sep="\t")
+        message("Empty GWAS results")
+        q()
+    }
+
+    merged[effect_allele == allele1, beta.flip := beta]
+    merged[effect_allele == allele2, beta.flip := -beta]
+    merged[is.na(beta.flip), beta.flip := 0]
+
+    zz <- matrix(merged$beta.flip / merged$standard_error, ncol = 1)
+    zz[is.na(zz)] <- 0
+    .match <- match(merged$physical.pos, plink$map$physical.pos)
+    xx <- safe.scale(plink$bed)[, .match, drop = F]
+    .mu <- as.matrix(qtl.mu[, -1])
+    .svd <- rsvd::rsvd(xx/sqrt(nrow(xx)))
+
+    compute.twas(.svd, .mu, zz, pve.cutoff = .9)
+
+}
+
+stwas.stat <- create.twas.dt(qtl.mu, gwas.dt, plink)
+stwas.stat[, c("celltype", "gene") := tstrsplit(`col`, split="_")]
+stwas.stat[, `col` := NULL]
+
+out.dt <- left_join(twas.stat, stwas.stat)
+
+fwrite(out.dt, out.file, sep = "\t", col.names = T, row.names = F)
 
 message("Done")

@@ -205,7 +205,9 @@ COVAR_PCs = list(range(10,50)) + list(range(50,101,10)) + [100]
 rule step4:
     input:
         expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
-        expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_PCs)
+        expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_PCs),
+        expand("result/step4/combined/qtl_PC{pc}.vcf.gz{ext}", pc=[37], ext=["",".tbi"]),
+        expand("result/step4/combined/ld_twas_{gwas}_PC{pc}.txt.gz", pc=[37], gwas=["AD"])
 
 ###############################
 # genotype Q/C and queue jobs #
@@ -227,6 +229,33 @@ rule step4_prepare_genetic_data:
         "--pvar {input.pvar} "
         "--psam {input.psam} "
         "--make-bed --out result/step4/rosmap"
+
+rule step4_post_vcf_jobs:
+    input:
+        "result/step4/combined/{jobname}.vcf"
+    output:
+        "result/step4/combined/{jobname}.vcf.gz"
+    shell:
+        "bgzip {input}; "
+
+rule step4_post_vcf_jobs_index:
+    input:
+        "result/step4/combined/{jobname}.vcf.gz"
+    output:
+        "result/step4/combined/{jobname}.vcf.gz.tbi"
+    shell:
+        "tabix -p vcf {input}; "
+
+rule step4_post_vcf_sort:
+    output:
+        vcf = "result/step4/combined/{jobname}.vcf"
+    params:
+        ddir = lambda w: "/".join(w.jobname.split("_")),
+        taboo = "#chromosome"
+    shell:
+        "mkdir -p result/step4/combined/; "
+        "cat <(cat result/step4/{params.ddir}/*.txt.gz | gzip -cd | head | awk 'NR == 1') "
+        "<(cat result/step4/{params.ddir}/*.txt.gz | gzip -cd | awk '$1 != \"{params.taboo}\"' | sort -k1,1 -k2,2n) > {output.vcf}"
 
 rule step4_post_ld_jobs:
     output: "result/step4/combined/{jobname}.txt.gz"
@@ -283,6 +312,7 @@ rule _step4_jobs_twas:
         ldfile="data/LD.info.txt",
         qtl_dir="result/step4/qtl/",
         gwas_dir="result/step4/gwas/",
+        gwas_stat_dir="data/gwas",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
     output:
         queue="jobs/step4/twas_{gwas}_{nPC}.sh"
@@ -293,7 +323,7 @@ rule _step4_jobs_twas:
             print_Rjob("twas",
                        "script/call_twas_per_ld.R",
                        "result/step4/twas/" + wildcards.gwas + "/PC" + wildcards.nPC,
-                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_dir + "/" + wildcards.gwas],
+                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_stat_dir + "/" + wildcards.gwas + ".vcf.gz", input.gwas_dir + "/" + wildcards.gwas],
                        mem=2048,
                        maxtime="4:00:00")
 

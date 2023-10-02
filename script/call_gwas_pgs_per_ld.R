@@ -210,10 +210,9 @@ zz[zz < -8] <- -8
 
 X <- safe.scale(plink$bed[, merged$plink.pos, drop = F])
 
-## Full polygenic risk prediction
-max.K <- min(min(dim(X)), max.K)
-
+################################################################
 ## Tune SVD PCs
+max.K <- min(min(dim(X)), max.K)
 nn <- nrow(X)
 cv.dt <- data.table()
 
