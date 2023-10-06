@@ -120,7 +120,7 @@ match.with.plink <- function(Y, plink){
 
 svd.theta <- function(.svd, k, zz){
     lambda <- 1/nrow(.svd$u)
-    vd2inv <- sweep(.svd$v[, 1:k, drop = F], 2, 1/.svd$d[1:k] + lambda, `*`)
+    vd2inv <- sweep(.svd$v[, 1:k, drop = F], 2, 1/(.svd$d[1:k]^2 + lambda), `*`)
     vz.k <- t(.svd$v[, 1:k, drop = F]) %*% zz
     .theta.k <- vd2inv %*% vz.k
 }
@@ -148,9 +148,20 @@ safe.corr <- function(y1, y2, ...){
     }
 }
 
+safe.pve <- function(y.target, y.pred){
+
+    if(check.sd(y.target) && check.sd(y.pred)){
+        .lm <- .safe.lm(matrix(y.target), matrix(y.pred))
+        .pve <- var(.lm$fitted, na.rm=T)/var(y.target, na.rm=T)
+        return(.pve)
+    } else {
+        return(NA)
+    }
+}
+
 cv.svd.comp <- function(xx, yy,
                         nfold = 5,
-                        ncomp = c(10, 50, 100, 150),
+                        ncomp = c(5, 10, 20, 30, 40, 50),
                         ...){
 
     nn <- nrow(xx)
@@ -182,7 +193,12 @@ cv.svd.comp <- function(xx, yy,
                           ...)
             })
 
-            .dt <- data.table(corr = corr, r = r, svd.k = k, y.col = 1:ncol(yy))
+            pve <- sapply(1:ncol(yy.train), function(j){
+                safe.pve(yy.test[, j], yy.hat[, j])
+            })
+
+            .dt <- data.table(corr = corr, pve = pve,
+                              r = r, svd.k = k, y.col = 1:ncol(yy))
             cv.result <- rbind(cv.result, .dt)
         }
     }
@@ -191,7 +207,9 @@ cv.svd.comp <- function(xx, yy,
 
 cv.summary <- function(cv.result){
     ret <- cv.result[, .(rr = mean(`corr`, na.rm = T),
-                         rr.se = sd(`corr`, na.rm = T) / sqrt(.N)),
+                         rr.se = sd(`corr`, na.rm = T) / sqrt(.N),
+                         pve = mean(`pve`, na.rm = T),
+                         pve.se = sd(`pve`, na.rm = T) / sqrt(.N)),
                      by = .(svd.k, y.col)]
     ret[order(`rr`, decreasing = TRUE),
         head(.SD, 1),
@@ -278,8 +296,8 @@ if(nrow(output) < 1){
     out.dt <-
         output %>%
         dplyr::select(`ld`, `gene`, `celltype`,
-                      `svd.k`, `rr`, `rr.se`) %>%
-        dplyr::mutate(nPC = nPC) %>% 
+                      `svd.k`, `rr`, `rr.se`, `pve`, `pve.se`) %>%
+        dplyr::mutate(nPC = nPC) %>%
         as.data.table()
 
     fwrite(out.dt, file=out.file, sep="\t")
