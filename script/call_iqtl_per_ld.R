@@ -390,7 +390,7 @@ if(nrow(output) < 1){
 
     out.dt <-
         output %>%
-        dplyr::select(`chromosome`, `physical.pos`, `W`,
+        dplyr::select(`chromosome`, `physical.pos`, `W`, `levels`,
                       `gene`, `celltype`,
                       `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`,
                       `beta`, `se`, `n`, `p.val`) %>%
