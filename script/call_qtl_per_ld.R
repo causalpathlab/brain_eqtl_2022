@@ -249,16 +249,17 @@ for(gene in genes){
         filter(lodds > 0) %>%
         as.data.table()
 
-    susie.best <-
-        susie.dt[order(abs(`z`), decreasing = T),
-                 head(.SD, 1),
-                 by = .(x.col, y.col)]
-
-    .out <- susie.best %>%
+    .out <- susie.dt %>%
         left_join(marg.stat) %>%
-        dplyr::select(-y.col, -x.col) %>%
         dplyr::mutate(gene) %>%
         na.omit() %>%
+        as.data.table()
+
+    .out <-
+        .out[order(`p.val`),
+             head(.SD, 1),
+             by = .(x.col, y.col)] %>% 
+        dplyr::select(-y.col, -x.col) %>%
         as.data.table()
 
     message("Computed: ", gene)
@@ -273,8 +274,9 @@ if(nrow(output) < 1){
     out.dt <-
         output %>%
         dplyr::select(`chromosome`, `physical.pos`, `levels`,
-                      `gene`, `celltype`, `beta`, `se`, `n`, `p.val`,
-                      `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`) %>%
+                      `gene`, `celltype`,
+                      `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`,
+                      `beta`, `se`, `n`, `p.val`) %>%
         dplyr::mutate(`alpha` = round(`alpha`, 4),
                       `mean` = round(`mean`, 4),
                       `lbf` = round(`lbf`, 4),

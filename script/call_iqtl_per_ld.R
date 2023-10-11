@@ -393,7 +393,7 @@ if(nrow(output) < 1){
         dplyr::select(`chromosome`, `physical.pos`, `W`,
                       `gene`, `celltype`,
                       `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`,
-                      `p.val`) %>%
+                      `beta`, `se`, `n`, `p.val`) %>%
         dplyr::mutate(`alpha` = round(`alpha`, 4),
                       `mean` = round(`mean`, 4),
                       `lbf` = round(`lbf`, 4),
