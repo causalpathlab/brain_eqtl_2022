@@ -256,7 +256,7 @@ for(gene in genes){
         as.data.table()
 
     .out <-
-        .out[order(`p.val`),
+        .out[order(`p.val`, -abs(`z`)),
              head(.SD, 1),
              by = .(x.col, y.col)] %>% 
         dplyr::select(-y.col, -x.col) %>%

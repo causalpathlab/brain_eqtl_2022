@@ -269,7 +269,7 @@ take.susie.cs <- function(xx,yy){
 
     ret <- left_join(susie.dt, marg.stat)
 
-    ret[order(`p.val`),
+    ret[order(`p.val`, -abs(`z`)),
         head(.SD, 1),
         by = .(x.col, y.col)]
 }
