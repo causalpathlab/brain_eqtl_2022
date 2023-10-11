@@ -235,11 +235,11 @@ for(gene in genes){
 
     susie <- mtSusie::mt_susie(X = .data$x,
                                Y = .data$y,
-                               L = 15,
+                               L = 30,
                                prior.var = .1,
                                coverage = .9,
                                output.full.stat = F,
-                               local.residual = T)
+                               local.residual = F)
 
     susie.dt <-
         setDT(susie$cs) %>%

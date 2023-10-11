@@ -252,11 +252,11 @@ adj.by.svd <- function(.data){
 take.susie.cs <- function(xx,yy){
     susie <- mtSusie::mt_susie(X = xx,
                                Y = yy,
-                               L = 15,
+                               L = 30,
                                prior.var = .1,
                                coverage = .9,
                                output.full.stat = F,
-                               local.residual = T)
+                               local.residual = F)
 
     susie.dt <-
         data.table::setDT(susie$cs) %>%
