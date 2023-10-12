@@ -235,8 +235,8 @@ for(gene in genes){
 
     susie <- mtSusie::mt_susie(X = .data$x,
                                Y = .data$y,
-                               L = 30,
-                               prior.var = .1,
+                               L = 25,
+                               prior.var = .01,
                                coverage = .9,
                                output.full.stat = F,
                                local.residual = F)
@@ -246,7 +246,6 @@ for(gene in genes){
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
         na.omit() %>%
-        filter(lodds > 0) %>%
         as.data.table()
 
     .out <- susie.dt %>%
@@ -259,6 +258,8 @@ for(gene in genes){
         .out[order(`p.val`, -abs(`z`)),
              head(.SD, 1),
              by = .(x.col, y.col)] %>% 
+        dplyr::filter(lodds > 0) %>%
+        dplyr::filter(alpha > 1e-2 | p.val < 1e-2) %>%
         dplyr::select(-y.col, -x.col) %>%
         as.data.table()
 

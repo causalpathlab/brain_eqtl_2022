@@ -252,8 +252,8 @@ adj.by.svd <- function(.data){
 take.susie.cs <- function(xx,yy){
     susie <- mtSusie::mt_susie(X = xx,
                                Y = yy,
-                               L = 30,
-                               prior.var = .1,
+                               L = 25,
+                               prior.var = .01,
                                coverage = .9,
                                output.full.stat = F,
                                local.residual = F)
@@ -271,7 +271,10 @@ take.susie.cs <- function(xx,yy){
 
     ret[order(`p.val`, -abs(`z`)),
         head(.SD, 1),
-        by = .(x.col, y.col)]
+        by = .(x.col, y.col)] %>%
+        dplyr::filter(lodds > 0) %>% 
+        dplyr::filter(alpha > 1e-2 | p.val < 1e-2) %>%
+        as.data.table()
 }
 
 ################################################################
@@ -366,9 +369,15 @@ for(g in genes){
         .w <- names(cond.data)[ii]
         .dt1 <- take.susie.cs(cond.data[[ii]]$x1, cond.data[[ii]]$y1)
         .dt0 <- take.susie.cs(cond.data[[ii]]$x0, cond.data[[ii]]$y0)
-        .dt1[, W := paste0(.w, 1)]
-        .dt0[, W := paste0(.w, 0)]        
-        .out <- rbind(rbind(.out, .dt1), .dt0)
+        if(nrow(.dt1) > 0){
+            .dt1[, W := paste0(.w, 1)]
+            .out <- rbind(.out, .dt1)
+        }
+
+        if(nrow(.dt0) > 0){
+            .dt0[, W := paste0(.w, 0)]
+            .out <- rbind(.out, .dt0)
+        }
     }
 
     .out <- .out %>%
