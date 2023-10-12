@@ -244,7 +244,7 @@ for(gene in genes){
         .temp <- mtSusie::mt_susie(.data$x, .data$y[,j,drop=F], tol = 1e-4, prior.var = .01, coverage = .99)
         .cs <- setDT(.temp$cs)
         .cs[, traits := j]
-        susie.dt <- rbind(susie.dt, .cs[lfsr < .1])
+        susie.dt <- rbind(susie.dt, .cs)
     }
 
     if(nrow(susie.dt) < 1) next
@@ -254,6 +254,8 @@ for(gene in genes){
         dplyr::rename(y.col = traits) %>%
         left_join(marg.stat) %>%
         dplyr::select(-y.col, -x.col) %>%
+        dplyr::filter(physical.pos >= (tss - cis.dist)) %>% 
+        dplyr::filter(physical.pos <= (tes + cis.dist)) %>% 
         dplyr::mutate(gene = gene) %>%
         na.omit() %>%
         as.data.table()

@@ -169,3 +169,65 @@ take.jaccard <- function(.mat){
     denom <- sweep(denom, 2, tot, `+`)
     jacc <- num/denom
 }
+
+################################################################
+
+build.annoy.graph <- function(Z, knn){
+    stopifnot(length(rownames(Z)) == nrow(Z))
+
+    annoy <- new(RcppAnnoy::AnnoyAngular, ncol(Z))
+    for(i in 1:nrow(Z)){
+        annoy$addItem(i-1, Z[i,])
+    }
+    annoy$build(50)
+
+    xx <- c()
+    yy <- c()
+    dd <- c()
+    for(i in 1:nrow(Z)){
+        xx <- c(xx, rep(i, knn))
+        neigh <- annoy$getNNsByItem(i-1, knn)
+        neigh.dd <- sapply(neigh, function(j) annoy$getDistance(i-1, j))
+        yy <- c(yy, neigh + 1)
+        dd <- c(dd, neigh.dd)
+    }
+
+    nn <- nrow(Z)
+    mm <- length(xx)
+    A <- Matrix::spMatrix(nrow=nn, ncol=nn, i=xx, j=yy, x=exp(-dd))
+    rownames(A) <- rownames(Z)
+    colnames(A) <- rownames(Z)
+
+    return(A)
+}
+
+louvain.umap <- function(A){
+
+    A <- as.matrix(A)
+    S <- A * t(A) 
+    A <- (A + t(A))/2 * (S > 0)    # symetrize
+    rm(S)
+
+    G <- igraph::graph_from_adjacency_matrix(A, mode="undirected", weighted=TRUE)
+
+    A <- Matrix::Matrix(A, sparse=T)
+
+    res <- 2
+
+    nrepeat <- 20
+    C <- list(modularity = 0)
+    for(r in 1:nrepeat){
+        c.r <- igraph::cluster_louvain(G, resolution = res)
+        message(paste("modularity: ", c.r$modularity, "\n"))
+        if(r == 1 || max(c.r$modularity) > max(C$modularity)){
+            C <- c.r
+        }
+    }
+
+    umap.A <- uwot::optimize_graph_layout(A, verbose = TRUE, spread=10,
+                                          n_sgd_threads = "auto")
+
+    data.table(genes = igraph::V(G)$name, membership = C$membership) %>%
+        left_join(cbind(data.table(genes = rownames(A)), as.data.table(umap.A)))
+
+}

@@ -1,0 +1,166 @@
+---
+title: "Cross-validated correlation analysis"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+classoption: "aspectratio=169"
+author: "Yongjin P Park"
+output:
+    beamer_presentation:
+        colortheme: "orchid"
+        keep_tex: true
+        latex_engine: xelatex
+        slide_level: 2
+---
+
+```{r include = FALSE}
+library(data.table)
+library(tidyverse)
+library(patchwork)
+theme_set(theme_classic())
+source("Util.R")
+source("Setup.R", )
+setup.env("Fig/2a_cross_validation/")
+```
+
+## Cross validate expression polygenic scores
+
+```{r include = FALSE}
+data.dir <- "~/Dropbox/Writing/AD430/1.Results/3.eQTL/"
+.files <- list.files(paste0(data.dir, "/heritability"), full.names = T)
+data.dt <- do.call(rbind, lapply(.files, fread))
+data.dt <- na.omit(data.dt)
+```
+
+Goal: Predict individual-level scores given summary statistics z-score vector. $G$ is $n \times p$ genotype dosage matrix.
+
+Given the singular value decomposition results of a genotype matrix $G$, namely,
+
+$$n^{-1/2} G = U D V^{\top},$$
+
+we can estimate polygenic scores for the $n$ individuals:
+
+$$\hat{\mathbf{y}} = U (D^{-1} + \lambda) V^{\top}\mathbf{z}$$
+
+using $p$-vector $\mathbf{z}$. We also optimized the number of SVD components.
+
+## Finding optimal number of principal components with CV cutoff 0.1
+
+
+```{r include = FALSE}
+rr.cutoff <- 0.1
+
+count.dt <-
+    data.dt[`rr` > rr.cutoff & `rr` > `rr.se` * 2,
+            .(nmodels = .N,
+              ngenes = length(unique(`gene`))),
+            by = .(nPC)] %>%
+    arrange(`nPC`)
+```
+
+```{r}
+plot.count <- function(count.dt){
+    p1 <-
+        ggplot(count.dt, aes(nPC, ngenes)) +
+        geom_smooth(se=F, color="gray70") +
+        geom_vline(xintercept = 37, lty=2, col=2) +
+        geom_point() +
+        xlab("# Principal Components") +
+        ylab(paste0("# genes with CV cor > ", rr.cutoff))
+    p2 <-
+        ggplot(count.dt, aes(nPC, nmodels)) +
+        geom_smooth(se=F, color="gray70") +
+        geom_vline(xintercept = 37, lty=2, col=2) +
+        geom_point() +
+        xlab("# Principal Components") +
+        ylab(paste0("# gene+cts with CV cor > ", rr.cutoff))
+    p1|p2
+}
+```
+
+```{r Fig_cv_corr_ngenes, fig.width=5, fig.height=3}
+plot.count(count.dt)
+```
+
+## Finding optimal number of principal components with CV cutoff 0.2
+
+```{r include = FALSE}
+rr.cutoff <- 0.2
+
+count.dt <-
+    data.dt[`rr` > rr.cutoff & `rr` > `rr.se` * 2,
+            .(nmodels = .N,
+              ngenes = length(unique(`gene`))),
+            by = .(nPC)] %>%
+    arrange(`nPC`)
+```
+
+```{r Fig_cv_corr_ngenes_strict, fig.width=5, fig.height=3}
+plot.count(count.dt)
+```
+
+## Histograms across different cell types
+
+```{r Fig_cv_density, fig.width=5.5, fig.height=2.8}
+.dt <- fread(paste0(data.dir, "heritability/ld_heritability_PC37.txt.gz"))
+
+ggplot(.dt, aes(rr)) +
+    xlab("Cross validation correlation") +
+    theme(strip.text = element_text(size=5)) +
+    theme(axis.text = element_text(size=6)) +
+    facet_wrap( ~ celltype, nrow = 3) +
+    geom_histogram() +
+    geom_vline(xintercept = 0.1, linewidth=.5, lty=2, col=2)
+```
+
+## Cell type specificity?
+
+```{r Fig_cv_celltype_count, fig.width=5.5, fig.height=2.8}
+rr.cutoff <- 0.1
+.sum <- .dt[rr > rr.cutoff, .(.N), by = .(celltype)]
+.avg <- mean(.sum$N)
+
+ggplot(.sum, aes(celltype, `N`)) +
+    theme(axis.text.x = element_text(angle=90, vjust=1, hjust=1)) +
+    geom_bar(stat="identity") +
+    geom_hline(yintercept = round(.avg), lty=2, col=2)
+```
+
+## Heritability vs CV correlation
+
+
+```{r Fig_cv_pve, fig.width=5, fig.height=3}
+ggplot(.dt, aes(`rr`, log10(`pve`))) +
+    stat_density2d_filled() +
+    scale_y_continuous("PVE (heritability %)", labels = function(x) round(100*10^x)) +
+    xlab("cross-validated correlation")
+```
+
+## Finding gene modules by CV patterns
+
+```{r prepare_gene_features_for_clustering}
+.feat <-
+    .dt[rr > 0, .(gene, celltype, rr)][order(-rr), head(.SD,1), by = .(gene, celltype)] %>%
+    dcast(gene ~ celltype, value.var = "rr", fill = 0, fun.aggregate = mean)
+
+Z <- t(apply(as.matrix(.feat[, -1]), 1, scale))
+Z[is.na(Z)] <- 0
+rownames(Z) <- unlist(.feat[,1])
+```
+
+```{r cluster_by_knn}
+knn <- 50
+knn.file <- ".2a_cross_validation_knn_" %&% knn %&% ".rds"
+
+if.needed(knn.file, {
+    A <- build.annoy.graph(Z, knn)
+    saveRDS(A, file=knn.file)
+})
+
+clust.file <- ".2a_cross_validation_cluster_" %&% knn %&% ".txt.gz"
+
+if.needed(clust.file, {
+    clust <- louvain.umap(readRDS(file=knn.file))
+    fwrite(clust, clust.file)
+})
+```
+
+
