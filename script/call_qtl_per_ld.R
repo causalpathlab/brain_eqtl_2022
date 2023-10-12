@@ -199,6 +199,8 @@ for(gene in genes){
 
     .temp <- expr.dt[hgnc_symbol == gene]
 
+    tss <- .temp$tss
+    tes <- .temp$tes
     y.ct <- .temp$celltype
     Y <- as.matrix(t(.temp[, -(1:6)]))
     colnames(Y) <- y.ct
@@ -235,40 +237,32 @@ for(gene in genes){
         dplyr::left_join(y.dt, by="y.col") %>%
         na.omit()
 
-    susie <- mtSusie::mt_susie(X = .data$x,
-                               Y = .data$y,
-                               L = 30,
-                               prior.var = .01,
-                               coverage = .9,
-                               output.full.stat = F,
-                               local.residual = F)
+    susie.dt <- data.table()
 
-    susie.dt <-
-        setDT(susie$cs) %>%
+    for(j in 1:ncol(.data$y)){
+        .temp <- mtSusie::mt_susie(.data$x, .data$y[,j,drop=F], tol = 1e-4, prior.var = .01, coverage = .99)
+        .cs <- setDT(.temp$cs)
+        .cs[, traits := j]
+        susie.dt <- rbind(susie.dt, .cs[lfsr < .1])
+    }
+
+    if(nrow(susie.dt) < 1) next
+
+    .out <- susie.dt %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
-        na.omit() %>%
-        as.data.table()
-
-    .out <- susie.dt %>%
         left_join(marg.stat) %>%
-        dplyr::mutate(gene) %>%
-        na.omit() %>%
-        as.data.table()
-
-    .out <-
-        .out[order(`p.val`, -abs(`z`)),
-             head(.SD, 1),
-             by = .(x.col, y.col)] %>% 
-        dplyr::filter(lodds > 0) %>%
-        dplyr::filter(alpha > 1e-2 | p.val < 1e-2) %>%
         dplyr::select(-y.col, -x.col) %>%
+        dplyr::mutate(gene = gene) %>%
+        na.omit() %>%
         as.data.table()
 
     message("Computed: ", gene)
 
     output <- rbind(output, .out)
 }
+
+message("Computed all the genes")
 
 if(nrow(output) < 1){
     fwrite(data.table(), file=out.file, sep="\t")
