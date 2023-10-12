@@ -170,9 +170,11 @@ take.marginal.stat <- function(xx, yy, se.min=1e-8) {
 
 ################################################################
 
+cis.dist <- 5e5
+
 ld.info <- fread(ld.file)
 ld.info[, chr := as.integer(gsub("chr","",`chr`))]
-ld.info[, query := paste0(`chr`, ":", `start`, "-", `stop`)]
+ld.info[, query := paste0(`chr`, ":", pmax(`start` - cis.dist, 0), "-", as.integer(`stop` + cis.dist))]
 
 .query <- ld.info[ld.index, ]$query
 
@@ -235,7 +237,7 @@ for(gene in genes){
 
     susie <- mtSusie::mt_susie(X = .data$x,
                                Y = .data$y,
-                               L = 25,
+                               L = 30,
                                prior.var = .01,
                                coverage = .9,
                                output.full.stat = F,

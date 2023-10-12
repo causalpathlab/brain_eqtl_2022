@@ -252,7 +252,7 @@ adj.by.svd <- function(.data){
 take.susie.cs <- function(xx,yy){
     susie <- mtSusie::mt_susie(X = xx,
                                Y = yy,
-                               L = 25,
+                               L = 30,
                                prior.var = .01,
                                coverage = .9,
                                output.full.stat = F,
@@ -279,9 +279,11 @@ take.susie.cs <- function(xx,yy){
 
 ################################################################
 
+cis.dist <- 5e5
+
 ld.info <- fread(ld.file)
 ld.info[, chr := as.integer(gsub("chr","",`chr`))]
-ld.info[, query := paste0(`chr`, ":", `start`, "-", `stop`)]
+ld.info[, query := paste0(`chr`, ":", pmax(`start` - cis.dist, 0), "-", as.integer(`stop` + cis.dist))]
 
 .query <- ld.info[ld.index, ]$query
 
