@@ -282,7 +282,7 @@ pheno.dt <- fread(pheno.file, header = T)
 
 message("read all the data")
 
-genes <- unique(expr.dt$hgnc_symbol)
+genes <- intersect(unique(expr.dt$hgnc_symbol), herit.dt$gene)
 
 output <- data.table()
 
