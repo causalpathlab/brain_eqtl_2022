@@ -199,8 +199,9 @@ for(gene in genes){
 
     .temp <- expr.dt[hgnc_symbol == gene]
 
-    tss <- .temp$tss
-    tes <- .temp$tes
+    tss <- min(.temp$tss)
+    tes <- max(.temp$tes)
+
     y.ct <- .temp$celltype
     Y <- as.matrix(t(.temp[, -(1:6)]))
     colnames(Y) <- y.ct

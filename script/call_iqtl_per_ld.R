@@ -2,7 +2,7 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 1609
+## ld.index <- 207
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## herit.dir <- "result/step4/heritability/"
@@ -249,36 +249,6 @@ adj.by.svd <- function(.data){
 
 ################################################################
 
-take.susie.cs <- function(xx,yy){
-    susie <- mtSusie::mt_susie(X = xx,
-                               Y = yy,
-                               L = 30,
-                               prior.var = .01,
-                               coverage = .9,
-                               output.full.stat = F,
-                               local.residual = F)
-
-    susie.dt <-
-        data.table::setDT(susie$cs) %>%
-        dplyr::rename(x.col = variants) %>%
-        dplyr::rename(y.col = traits) %>%
-        na.omit() %>%
-        as.data.table()
-
-    marg.stat <- take.marginal.stat(xx,yy)
-
-    ret <- left_join(susie.dt, marg.stat)
-
-    ret[order(`p.val`, -abs(`z`)),
-        head(.SD, 1),
-        by = .(x.col, y.col)] %>%
-        dplyr::filter(lodds > 0) %>% 
-        dplyr::filter(alpha > 1e-2 | p.val < 1e-2) %>%
-        as.data.table()
-}
-
-################################################################
-
 cis.dist <- 5e5
 
 ld.info <- fread(ld.file)
@@ -319,6 +289,9 @@ output <- data.table()
 for(g in genes){
 
     .temp <- expr.dt[hgnc_symbol == g]
+
+    tss <- min(.temp$tss)
+    tes <- max(.temp$tes)
 
     y.ct <- .temp$celltype
     Y <- as.matrix(t(.temp[, -(1:6)]))
@@ -369,15 +342,18 @@ for(g in genes){
 
     for(ii in 1:length(cond.data)){
         .w <- names(cond.data)[ii]
-        .dt1 <- take.susie.cs(cond.data[[ii]]$x1, cond.data[[ii]]$y1)
-        .dt0 <- take.susie.cs(cond.data[[ii]]$x0, cond.data[[ii]]$y0)
+        .dt1 <- take.marginal.stat(cond.data[[ii]]$x1, cond.data[[ii]]$y1)
+        .dt0 <- take.marginal.stat(cond.data[[ii]]$x0, cond.data[[ii]]$y0)
+
         if(nrow(.dt1) > 0){
-            .dt1[, W := paste0(.w, 1)]
+            .dt1[, cond := .w]
+            .dt1[, W := 1]
             .out <- rbind(.out, .dt1)
         }
 
         if(nrow(.dt0) > 0){
-            .dt0[, W := paste0(.w, 0)]
+            .dt0[, cond := .w]
+            .dt0[, W := 0]
             .out <- rbind(.out, .dt0)
         }
     }
@@ -387,6 +363,8 @@ for(g in genes){
         left_join(y.dt) %>% 
         dplyr::select(-y.col, -x.col) %>%
         dplyr::mutate(gene = g) %>%
+        dplyr::filter(physical.pos >= (tss - cis.dist)) %>% 
+        dplyr::filter(physical.pos <= (tes + cis.dist)) %>% 
         na.omit() %>%
         as.data.table()
 
@@ -401,16 +379,9 @@ if(nrow(output) < 1){
 
     out.dt <-
         output %>%
-        dplyr::select(`chromosome`, `physical.pos`, `W`, `levels`,
+        dplyr::select(`chromosome`, `physical.pos`, `cond`, `W`,
                       `gene`, `celltype`,
-                      `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`,
                       `beta`, `se`, `n`, `p.val`) %>%
-        dplyr::mutate(`alpha` = round(`alpha`, 4),
-                      `mean` = round(`mean`, 4),
-                      `lbf` = round(`lbf`, 4),
-                      `z` = round(`z`, 4),
-                      `lodds` = round(`lodds`, 4),
-                      `lfsr` = round(`lfsr`, 4)) %>% 
         arrange(chromosome, physical.pos) %>%
         dplyr::rename(`#chromosome` = `chromosome`) %>%
         as.data.table()
