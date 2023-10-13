@@ -147,6 +147,14 @@ order.pair <- function(pair.tab, ret.tab=FALSE) {
               legend.box.background = element_rect(fill='transparent'))
 }
 
+sample.color <- function(K, pal="Paired", max.K=10){
+    colorRampPalette(RColorBrewer::brewer.pal(min(max.K, K),pal))(K)
+}
+
+sample.colour <- function(...){
+    sample.color(...)
+}
+
 as.dt <- function(x, col.names=NULL) {
     .mat <- as.matrix(x)
     if(is.null(col.names)) col.names <- str_c("V",1:ncol(.mat))
@@ -224,10 +232,10 @@ louvain.umap <- function(A){
         }
     }
 
-    umap.A <- uwot::optimize_graph_layout(A, verbose = TRUE, spread=10,
+    umap.A <- uwot::optimize_graph_layout(A, verbose = TRUE,
                                           n_sgd_threads = "auto")
 
-    data.table(genes = igraph::V(G)$name, membership = C$membership) %>%
-        left_join(cbind(data.table(genes = rownames(A)), as.data.table(umap.A)))
+    data.table(gene = igraph::V(G)$name, membership = C$membership) %>%
+        left_join(cbind(data.table(gene = rownames(A)), as.data.table(umap.A)))
 
 }

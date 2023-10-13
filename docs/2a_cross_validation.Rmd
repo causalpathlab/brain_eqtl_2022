@@ -15,7 +15,11 @@ output:
 library(data.table)
 library(tidyverse)
 library(patchwork)
-theme_set(theme_classic())
+theme_set(theme_classic() +
+          theme(axis.text = element_text(size=5)) +
+          theme(legend.text = element_text(size=4)) +
+          theme(legend.key.size = unit(.3, "lines")) +
+          theme(legend.title = element_text(size=6)))
 source("Util.R")
 source("Setup.R", )
 setup.env("Fig/2a_cross_validation/")
@@ -38,7 +42,7 @@ $$n^{-1/2} G = U D V^{\top},$$
 
 we can estimate polygenic scores for the $n$ individuals:
 
-$$\hat{\mathbf{y}} = U (D^{-1} + \lambda) V^{\top}\mathbf{z}$$
+$$\hat{\mathbf{y}} = U (D + \sqrt{\lambda}I)^{-1} V^{\top}\mathbf{z}$$
 
 using $p$-vector $\mathbf{z}$. We also optimized the number of SVD components.
 
@@ -134,14 +138,199 @@ ggplot(.dt, aes(`rr`, log10(`pve`))) +
     xlab("cross-validated correlation")
 ```
 
+## Cell type-specific gene set enrichment analysis
+
+```{r run_gene_set_enrichment, include = FALSE}
+.dt <- fread(paste0(data.dir, "heritability/ld_heritability_PC37.txt.gz"))
+
+.feat <-
+    .dt[order(-rr), head(.SD, 1), by = .(gene, celltype)] %>%
+    dcast(gene ~ celltype, value.var = "rr", fill = 0, fun.aggregate = max)
+
+Z <- as.matrix(.feat[,-1])
+colnames(Z) <- colnames(.feat)[-1]
+rownames(Z) <- unlist(.feat[,1])
+
+.file <- ".2a_cross_validation_gsea.txt.gz"
+
+if.needed(.file, {
+    gsea.dt <- data.table()
+
+    make.gs.lol <- function(.dt) {
+        .dt <- as.data.table(.dt) %>% unique()
+        .list <-
+            .dt[, .(gene = .(gene_symbol)), by = .(gs_name)] %>%
+            as.list()
+        .names <- .list$gs_name
+        .ret <- .list$gene
+        names(.ret) <- .names
+        return(.ret)
+    }
+
+    gs.db <-
+        msigdbr::msigdbr(species = "human", category = "C5") %>%
+        dplyr::select(gs_name, gene_symbol)
+
+    gs.lol <- make.gs.lol(gs.db)
+
+    for(j in 1:ncol(Z)){
+
+        .ct <- colnames(Z)[j]
+        .scores <- scale(Z[, j])
+        names(.scores) <- rownames(Z)
+
+        .gsea <- fgsea::fgsea(pathways = gs.lol,
+                              stats = .scores,
+                              minSize = 50,
+                              maxSize = 1000,
+                              scoreType = "pos")
+
+        .gsea <- .gsea[, .(pathway, pval, padj, size)]
+        .gsea[, celltype := .ct]
+        .gsea[, cat := "GO"]
+        gsea.dt <- rbind(gsea.dt, .gsea)
+    }
+
+    .sub <- c("CP:KEGG","CP:BIOCARTA","CP:PID","CP:REACTOME","CP:WIKIPATHAYS")
+
+    gs.db <-
+        msigdbr::msigdbr(species = "human", category = "C2") %>%
+        dplyr::filter(gs_subcat %in% .sub) %>% 
+        dplyr::select(gs_name, gene_symbol)
+
+    gs.lol <- make.gs.lol(gs.db)
+
+    for(j in 1:ncol(Z)){
+
+        .ct <- colnames(Z)[j]
+        .scores <- scale(Z[, j])
+        names(.scores) <- rownames(Z)
+
+        .gsea <- fgsea::fgsea(pathways = gs.lol,
+                              stats = .scores,
+                              minSize = 50,
+                              maxSize = 1000,
+                              scoreType = "pos")
+
+        .gsea <- .gsea[, .(pathway, pval, padj, size)]
+        .gsea[, celltype := .ct]
+        .gsea[, cat := "CAN"]
+        gsea.dt <- rbind(gsea.dt, .gsea)
+    }
+
+    fwrite(gsea.dt, .file)
+})
+gsea.dt <- fread(.file)
+```
+
+```{r Fig_gsea_glial, fig.width=5, fig.height=3}
+.dt <- gsea.dt[!str_starts(`celltype`, "Exc") & !str_starts(`celltype`, "Inh")]
+
+.path.count <- .dt[padj < .1 & cat == "CAN", .(.N), by = .(pathway)]
+
+max.celltype <- 3
+max.per.celltype <- 4
+
+.show <- unique(.dt[`pathway` %in% .path.count[`N` < max.celltype]$pathway,][order(pval, -size), head(.SD, max.per.celltype), by=.(celltype)][, .(pathway)])
+
+.dt <- .dt[pathway %in% unlist(.show), ] %>%
+    mutate(col = str_sub(str_remove(`pathway`,"REACTOME_"),1,50),
+           row = `celltype`,
+           weight = -log10(padj)) %>%
+    order.pair(ret.tab = T)
+
+ggplot(.dt, aes(row, col, fill=pmin(weight, 2))) +
+    geom_tile(linewidth=.1,color="black") + xlab("cell types") + ylab("pathways") +
+    theme(axis.text.x = element_text(angle=30, vjust=1, hjust=1)) +
+    scale_fill_distiller("adj p-value",
+                         labels = function(x) num.sci(10^(-x)),
+                         palette = "RdPu", direction = 1)
+```
+	
+## GO enrichment for glial cells
+
+```{r Fig_go_glial, fig.width=5, fig.height=3}
+.dt <- gsea.dt[!str_starts(`celltype`, "Exc") & !str_starts(`celltype`, "Inh")]
+
+.path.count <- .dt[padj < .1 & cat == "GO" & !str_starts(`pathway`, "HP_"), .(.N), by = .(pathway)]
+
+max.celltype <- 3
+max.per.celltype <- 3
+
+.show <- unique(.dt[`pathway` %in% .path.count[`N` < max.celltype]$pathway,][order(pval, -size), head(.SD, max.per.celltype), by=.(celltype)][, .(pathway)])
+
+.dt <- .dt[pathway %in% unlist(.show), ] %>%
+    mutate(col = str_sub(`pathway`,1,50), row = `celltype`, weight = -log10(padj)) %>%
+    order.pair(ret.tab = T)
+
+ggplot(.dt, aes(row, col, fill=pmin(weight, 2))) +
+    geom_tile(linewidth=.1,color="black") + xlab("cell types") + ylab("pathways") +
+    theme(axis.text.x = element_text(angle=90, vjust=1, hjust=1)) +
+    scale_fill_distiller("adj p-value",
+                         labels = function(x) num.sci(10^(-x)),
+                         palette = "RdPu", direction = 1)
+```
+
+## GO enrichment for excitatory neurons
+
+```{r Fig_go_exc, fig.width=5.5, fig.height=3}
+.dt <- gsea.dt[str_starts(`celltype`, "Exc")]
+
+.path.count <- .dt[padj < .05 & cat == "GO" & !str_starts(`pathway`, "HP_"), .(.N), by = .(pathway)]
+
+max.celltype <- 3
+max.per.celltype <- 3
+
+.show <- unique(.dt[`pathway` %in% .path.count[`N` < max.celltype]$pathway,][order(pval, -size), head(.SD, max.per.celltype), by=.(celltype)][, .(pathway)])
+
+.dt <- .dt[pathway %in% unlist(.show), ] %>%
+    mutate(col = str_sub(`pathway`,1,50), row = `celltype`, weight = -log10(padj)) %>%
+    order.pair(ret.tab = T)
+
+ggplot(.dt, aes(row, col, fill=pmin(weight, 2))) +
+    geom_tile(linewidth=.1,color="black") + xlab("cell types") + ylab("pathways") +
+    theme(axis.text.x = element_text(angle=30, vjust=1, hjust=1)) +
+    scale_fill_distiller("adj p-value",
+                         labels = function(x) num.sci(10^(-x)),
+                         palette = "RdPu", direction = 1)
+```
+
+## GO enrichment for inhibitory neurons
+
+```{r Fig_go_inh, fig.width=4.5, fig.height=2.5}
+.dt <- gsea.dt[str_starts(`celltype`, "Inh")]
+
+.path.count <- .dt[padj < .1 & cat == "GO" & !str_starts(`pathway`, "HP_"), .(.N), by = .(pathway)]
+
+max.celltype <- 2
+max.per.celltype <- 3
+
+.show <- unique(.dt[`pathway` %in% .path.count[`N` < max.celltype]$pathway,][order(pval, -size), head(.SD, max.per.celltype), by=.(celltype)][, .(pathway)])
+
+.dt <- .dt[pathway %in% unlist(.show), ] %>%
+    mutate(col = str_sub(`pathway`,1,50), row = `celltype`, weight = -log10(padj)) %>%
+    order.pair(ret.tab = T)
+
+ggplot(.dt, aes(row, col, fill=pmin(weight, 2))) +
+    geom_tile(linewidth=.1,color="black") + xlab("cell types") + ylab("pathways") +
+    theme(axis.text.x = element_text(angle=35, vjust=1, hjust=1)) +
+    scale_fill_distiller("adj p-value",
+                         labels = function(x) num.sci(10^(-x)),
+                         palette = "RdPu", direction = 1)
+```
+
 ## Finding gene modules by CV patterns
 
 ```{r prepare_gene_features_for_clustering}
+.dt <- fread(paste0(data.dir, "heritability/ld_heritability_PC37.txt.gz"))
+
 .feat <-
     .dt[rr > 0, .(gene, celltype, rr)][order(-rr), head(.SD,1), by = .(gene, celltype)] %>%
     dcast(gene ~ celltype, value.var = "rr", fill = 0, fun.aggregate = mean)
 
-Z <- t(apply(as.matrix(.feat[, -1]), 1, scale))
+## Z <- t(apply(as.matrix(.feat[, -1]), 1, scale))
+Z <- as.matrix(.feat[, -1])
+colnames(Z) <- colnames(.feat[, -1])
 Z[is.na(Z)] <- 0
 rownames(Z) <- unlist(.feat[,1])
 ```
@@ -161,6 +350,57 @@ if.needed(clust.file, {
     clust <- louvain.umap(readRDS(file=knn.file))
     fwrite(clust, clust.file)
 })
+clust <- fread(clust.file)
+clust.sz <- clust[, .(.N), by = .(membership)]
 ```
 
+```{r Fig_gene_clust_umap, fig.width=5.5, fig.height=3}
+.dt <- clust[`membership` %in% clust.sz[`N` > 100]$membership]
+.dt.med <- .dt[, .(V1 = median(V1), V2 = median(V2)), by = .(membership)]
+.K <- length(unique(.dt$membership))
+
+ggplot(.dt, aes(V1, V2, colour=as.factor(membership))) +
+    ggrastr::rasterise(geom_point(stroke = 0, size = .8), dpi=300) +
+    ggrepel::geom_text_repel(aes(label=membership), data=.dt.med, size=4, color="black") +
+    scale_colour_manual("gene\ncluster",values = sample.colour(.K)) +
+    theme_void() +
+    theme(legend.text = element_text(size=5)) +
+    theme(legend.key.size = unit(.1, "lines")) +
+    xlab("UMAP1") + ylab("UMAP2")
+```
+
+
+## Q/C by CV confirms the cell type specificity of cis-regulatory mechanisms
+
+```{r}
+feat.dt <- clust[, .(gene, membership)] %>% left_join(.feat)
+feat.melt <- melt(feat.dt, id.vars = c("gene", "membership"),
+                  variable.name = "celltype",
+                  value.name = "rr")
+feat.celltype <-
+    feat.melt[, .(rr.mu = mean(rr), rr.sd = sd(rr), nn = .N),
+              by = .(membership, celltype)]
+
+.df <- feat.celltype %>%
+    mutate(row = celltype, col = membership, weight = rr.mu) %>% 
+    order.pair(ret.tab = T)
+```
+
+```{r Fig_gene_clust_ct, fig.width=4.5, fig.height=3}
+ggplot(.df[`nn` >= 100], aes(col, row, fill = pmin(weight, .2))) +
+    xlab("cluster") + ylab("cell type") +
+    geom_tile(linewidth=.1, color="gray10") +
+    scale_fill_distiller("average\nCV\ncorrelation", direction=1)
+```
+
+## Gene cluster sizes
+
+```{r Fig_gene_clust_count, fig.width=3.5, fig.height=2}
+feat.celltype[, col := factor(`membership`, sort(unique(.df$col)))]
+.dt.temp <- unique(feat.celltype[`nn` > 100, .(col, nn)])
+ggplot(.dt.temp, aes(x = col, y = nn)) +
+    geom_bar(stat="identity", width=.5) +
+    ggrepel::geom_text_repel(aes(label=num.int(`nn`)), size=2) +
+    xlab("cluster") + ylab("#genes")
+```
 
