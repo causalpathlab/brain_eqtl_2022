@@ -2,7 +2,7 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 207
+## ld.index <- 1381
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## herit.dir <- "result/step4/heritability/"
@@ -288,6 +288,8 @@ output <- data.table()
 
 for(g in genes){
 
+    message("running... ",g)
+
     .temp <- expr.dt[hgnc_symbol == g]
 
     tss <- min(.temp$tss)
@@ -338,7 +340,7 @@ for(g in genes){
 
     cond.data <- adj.by.svd(.data)
 
-    .out <- data.table()
+    .temp <- data.table()
 
     for(ii in 1:length(cond.data)){
         .w <- names(cond.data)[ii]
@@ -348,19 +350,20 @@ for(g in genes){
         if(nrow(.dt1) > 0){
             .dt1[, cond := .w]
             .dt1[, W := 1]
-            .out <- rbind(.out, .dt1)
+            .temp <- rbind(.temp, .dt1)
         }
 
         if(nrow(.dt0) > 0){
             .dt0[, cond := .w]
             .dt0[, W := 0]
-            .out <- rbind(.out, .dt0)
+            .temp <- rbind(.temp, .dt0)
         }
+        message("... ", .w)
     }
 
-    .out <- .out %>%
-        left_join(x.dt) %>% 
-        left_join(y.dt) %>% 
+    .out <- as.data.frame(.temp) %>%
+        dplyr::left_join(x.dt) %>% 
+        dplyr::left_join(y.dt) %>% 
         dplyr::select(-y.col, -x.col) %>%
         dplyr::mutate(gene = g) %>%
         dplyr::filter(physical.pos >= (tss - cis.dist)) %>% 
@@ -377,12 +380,15 @@ if(nrow(output) < 1){
     fwrite(data.table(), file=out.file, sep="\t")
 } else {
 
+    message("Sorting out")
+
     out.dt <-
         output %>%
+        as.data.table() %>% 
         dplyr::select(`chromosome`, `physical.pos`, `cond`, `W`,
                       `gene`, `celltype`,
                       `beta`, `se`, `n`, `p.val`) %>%
-        arrange(chromosome, physical.pos) %>%
+        dplyr::arrange(chromosome, physical.pos) %>%
         dplyr::rename(`#chromosome` = `chromosome`) %>%
         as.data.table()
 
