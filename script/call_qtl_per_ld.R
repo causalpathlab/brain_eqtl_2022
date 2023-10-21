@@ -232,7 +232,7 @@ for(g in genes){
 
     .lm <- .safe.lm(Y, covar)
 
-    plink.cis <- crop.plink.cis(plink, tss, tes, cis)
+    plink.cis <- crop.plink.cis(plink, tss, tes, cis.dist)
     .data <- match.with.plink(.lm$residuals, plink.cis)
     .data$x <- apply(.data$x, 2, scale)
 
