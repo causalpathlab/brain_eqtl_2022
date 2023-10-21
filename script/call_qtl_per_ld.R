@@ -2,7 +2,7 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 1609
+## ld.index <- 207
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## svd.file <- "result/step3/svd.rds"
@@ -18,8 +18,6 @@ expr.file <- argv[4]
 svd.file <- argv[5]
 max.K <- argv[6]
 out.file <- argv[7]
-
-temp.dir <- paste0(out.file, "_temp")
 
 ################################################################
 
@@ -99,6 +97,18 @@ match.with.plink <- function(Y, plink){
     return(ret)
 }
 
+crop.plink.cis <- function(plink, tss, tes, cis){
+    ret <- plink
+
+    .valid <- which(plink$map$physical.pos >= (tss - cis) &
+                    plink$map$physical.pos <= (tes + cis))
+
+    ret$map <- ret$map[.valid,]
+    ret$bed <- ret$bed[, .valid, drop = F]
+
+    return(ret)
+}
+
 take.marginal.stat <- function(xx, yy, se.min=1e-8) {
     .xx <- apply(xx, 2, scale)
     .yy <- apply(yy, 2, scale)
@@ -170,6 +180,10 @@ take.marginal.stat <- function(xx, yy, se.min=1e-8) {
 
 ################################################################
 
+temp.dir <- paste0(out.file, "_temp")
+
+################################################################
+
 cis.dist <- 5e5
 
 ld.info <- fread(ld.file)
@@ -195,9 +209,9 @@ genes <- unique(expr.dt$hgnc_symbol)
 
 output <- data.table()
 
-for(gene in genes){
+for(g in genes){
 
-    .temp <- expr.dt[hgnc_symbol == gene]
+    .temp <- expr.dt[hgnc_symbol == g]
 
     tss <- min(.temp$tss)
     tes <- max(.temp$tes)
@@ -212,55 +226,77 @@ for(gene in genes){
 
     Y <- Y[, observed >= .10, drop = F]
 
-    covar <- apply(.svd.covar$u[rownames(Y), 1:max.K, drop = FALSE], 2, scale)
+    covar <- apply(.svd.covar$u[rownames(Y), 1:max.K, drop = FALSE],
+                   MARGIN = 2,
+                   FUN = scale)
 
     .lm <- .safe.lm(Y, covar)
 
-    .data <- match.with.plink(.lm$residuals, plink)
+    plink.cis <- crop.plink.cis(plink, tss, tes, cis)
+    .data <- match.with.plink(.lm$residuals, plink.cis)
     .data$x <- apply(.data$x, 2, scale)
 
     xx <- .data$x
     xx[is.na(xx)] <- 0
     yy <- .data$y
 
-    x.dt <- as.data.table(plink$map)
+    x.dt <- as.data.table(plink.cis$map)
     x.dt <- x.dt[, .(`chromosome`,
                      `physical.pos`,
                      `allele1`,
                      `allele2`)] %>%
         cbind(x.col=1:ncol(.data$x))
 
-    y.dt <- data.table(celltype=colnames(.data$y), y.col=1:ncol(.data$y))
+    y.dt <- data.table(celltype=c(colnames(.data$y), "Multi"),
+                       y.col=1:(1 + ncol(.data$y)))
 
+    #########################
+    ## marginal statistics ##
+    #########################
     marg.stat <-
-        take.marginal.stat(.data$x, .data$y) %>%
+        take.marginal.stat(.data$x, .data$y) %>% 
         dplyr::left_join(x.dt, by="x.col") %>%
         dplyr::left_join(y.dt, by="y.col") %>%
         na.omit()
 
+    ##################
+    ## fine-mapping ##
+    ##################
+
+    ## Let's focus on cell-type-specific variants
     susie.dt <- data.table()
 
     for(j in 1:ncol(.data$y)){
-        .temp <- mtSusie::mt_susie(.data$x, .data$y[,j,drop=F], tol = 1e-4, prior.var = .01, coverage = .99)
+        .temp <- mtSusie::mt_susie(X = .data$x,
+                                   Y = .data$y[,j,drop=F],
+                                   L = 7,
+                                   tol = 1e-4,
+                                   prior.var = .01,
+                                   coverage = .95,
+                                   local.residual = T)
         .cs <- setDT(.temp$cs)
-        .cs[, traits := j]
-        susie.dt <- rbind(susie.dt, .cs)
+
+        .cs.argmax <- .cs[order(abs(z), decreasing = T),
+                          head(.SD, 1),
+                          by = .(variants)]
+
+        .cs.argmax[, traits := j]
+        susie.dt <- rbind(susie.dt, .cs.argmax)
     }
 
     if(nrow(susie.dt) < 1) next
 
-    .out <- susie.dt %>% 
+    .out <-
+        rbind(susie.dt, mt.susie.dt) %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
         left_join(marg.stat) %>%
         dplyr::select(-y.col, -x.col) %>%
-        dplyr::filter(physical.pos >= (tss - cis.dist)) %>% 
-        dplyr::filter(physical.pos <= (tes + cis.dist)) %>% 
-        dplyr::mutate(gene = gene) %>%
+        dplyr::mutate(gene = g) %>%
         na.omit() %>%
         as.data.table()
 
-    message("Computed: ", gene)
+    message("Computed: ", g)
 
     output <- rbind(output, .out)
 }
