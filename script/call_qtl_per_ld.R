@@ -279,11 +279,7 @@ for(g in genes){
     if(nrow(susie.dt) < 1) next
 
     .temp <- 
-<<<<<<< HEAD
         as.data.frame(susie.dt) %>% 
-=======
-        as.data.frame(susie.argmax) %>% 
->>>>>>> c39e8399c0195d72dbb0ca8831f62c64ba6f5db6
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
         left_join(marg.stat) %>%
