@@ -247,8 +247,8 @@ for(g in genes){
                      `allele2`)] %>%
         cbind(x.col=1:ncol(.data$x))
 
-    y.dt <- data.table(celltype=c(colnames(.data$y), "Multi"),
-                       y.col=1:(1 + ncol(.data$y)))
+    y.dt <- data.table(celltype=colnames(.data$y),
+                       y.col=1:ncol(.data$y))
 
     #########################
     ## marginal statistics ##
@@ -264,30 +264,22 @@ for(g in genes){
     ##################
 
     ## Let's focus on cell-type-specific variants
-    susie.dt <- data.table()
+    susie.cs <- mtSusie::susie_cs(X = .data$x,
+                                  Y = .data$y,
+                                  L = 7,
+                                  clamp = 4,
+                                  tol = 1e-4,
+                                  prior.var = .01,
+                                  coverage = .95,
+                                  update.prior = T,
+                                  local.residual = T)
 
-    for(j in 1:ncol(.data$y)){
-        .temp <- mtSusie::mt_susie(X = .data$x,
-                                   Y = .data$y[,j,drop=F],
-                                   L = 7,
-                                   tol = 1e-4,
-                                   prior.var = .01,
-                                   coverage = .95,
-                                   local.residual = T)
-        .cs <- setDT(.temp$cs)
-
-        .cs.argmax <- .cs[order(abs(z), decreasing = T),
-                          head(.SD, 1),
-                          by = .(variants)]
-
-        .cs.argmax[, traits := j]
-        susie.dt <- rbind(susie.dt, .cs.argmax)
-    }
+    susie.dt <- setDT(susie.cs)
 
     if(nrow(susie.dt) < 1) next
 
     .out <-
-        rbind(susie.dt, mt.susie.dt) %>% 
+        susie.dt %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
         left_join(marg.stat) %>%

@@ -23,8 +23,6 @@ pheno.file <- argv[7]
 max.K <- argv[8]
 out.file <- argv[9]
 
-temp.dir <- paste0(out.file, "_temp")
-
 ################################################################
 
 library(data.table)
@@ -99,6 +97,18 @@ match.with.plink <- function(Y, plink){
 
     ret <- list(x = X[.match$x.row, , drop = FALSE],
                 y = Y[.match$y.row, , drop = FALSE])
+
+    return(ret)
+}
+
+crop.plink.cis <- function(plink, tss, tes, cis){
+    ret <- plink
+
+    .valid <- which(plink$map$physical.pos >= (tss - cis) &
+                    plink$map$physical.pos <= (tes + cis))
+
+    ret$map <- ret$map[.valid,]
+    ret$bed <- ret$bed[, .valid, drop = F]
 
     return(ret)
 }
@@ -220,7 +230,6 @@ adj.by.svd <- function(.data){
         .svd1 <- rsvd::rsvd(x1, k=max(.data$svd.k))
         .svd0 <- rsvd::rsvd(x0, k=max(.data$svd.k))
 
-
         y0.for.w1 <- sapply(1:length(.data$svd.k),
                             function(j) svd.pgs(.svd1,
                                                 .data$svd.k[j],
@@ -239,7 +248,28 @@ adj.by.svd <- function(.data){
             .safe.lm(y0[,j,drop=F], y1.for.w0[,j,drop=F])$residuals
         })
 
-        list(y0 = y0.adj, y1 = y1.adj, x0 = x0, x1 = x1)
+        ## full prediction by adjusted z-scores
+        .svd.full <- rsvd::rsvd(.data$x, k=max(.data$svd.k))
+
+        z1 <- fast.z(x1, y1.adj)
+        z0 <- fast.z(x0, y0.adj)
+
+        y1.full <- sapply(1:length(.data$svd.k),
+                          function(j) svd.pgs(.svd.full,
+                                              .data$svd.k[j],
+                                              z1[, j]))
+
+        y0.full <- sapply(1:length(.data$svd.k),
+                          function(j) svd.pgs(.svd.full,
+                                              .data$svd.k[j],
+                                              z0[, j]))
+
+        list(y0 = y0.adj,
+             y1 = y1.adj,
+             x0 = x0,
+             x1 = x1,
+             y0.full = y0.full,
+             y1.full = y1.full)
     }
 
     ret <- lapply(1:ncol(.data$w), imp.r)
@@ -248,6 +278,8 @@ adj.by.svd <- function(.data){
 }
 
 ################################################################
+
+temp.dir <- paste0(out.file, "_temp")
 
 cis.dist <- 5e5
 
@@ -310,17 +342,20 @@ for(g in genes){
     #################################
     covar <- apply(.svd.covar$u[rownames(Y), 1:max.K, drop = F], 2, scale)
     .lm <- .safe.lm(Y, covar)
-    .data <- match.with.plink(.lm$residuals, plink)
+
+    plink.cis <- crop.plink.cis(plink, tss, tes, cis.dist)
+    .data <- match.with.plink(.lm$residuals, plink.cis)
     .data$x <- safe.scale(.data$x)
 
-    x.dt <- as.data.table(plink$map)
+    x.dt <- as.data.table(plink.cis$map)
     x.dt <- x.dt[, .(`chromosome`,
                      `physical.pos`,
                      `allele1`,
                      `allele2`)] %>%
         cbind(x.col=1:ncol(.data$x))
 
-    y.dt <- data.table(celltype=colnames(.data$y), y.col=1:ncol(.data$y))
+    y.dt <- data.table(celltype=colnames(.data$y),
+                       y.col=1:ncol(.data$y))
 
     ################
     ## conditions ##
@@ -343,9 +378,46 @@ for(g in genes){
     .temp <- data.table()
 
     for(ii in 1:length(cond.data)){
+
         .w <- names(cond.data)[ii]
-        .dt1 <- take.marginal.stat(cond.data[[ii]]$x1, cond.data[[ii]]$y1)
-        .dt0 <- take.marginal.stat(cond.data[[ii]]$x0, cond.data[[ii]]$y0)
+
+        .cs0 <- mtSusie::susie_cs(X = cond.data[[ii]]$x0,
+                                  Y = cond.data[[ii]]$y0,
+                                  L = 7,
+                                  tol = 1e-4,
+                                  clamp = 4,
+                                  prior.var = .01,
+                                  coverage = .95,
+                                  update.prior = T,
+                                  local.residual = T)
+
+        .cs1 <- mtSusie::susie_cs(X = cond.data[[ii]]$x1,
+                                  Y = cond.data[[ii]]$y1,
+                                  L = 7,
+                                  tol = 1e-4,
+                                  clamp = 4,
+                                  prior.var = .01,
+                                  coverage = .95,
+                                  update.prior = T,
+                                  local.residual = T)
+
+        .marg1 <- take.marginal.stat(cond.data[[ii]]$x1,
+                                     cond.data[[ii]]$y1)
+
+        .marg0 <- take.marginal.stat(cond.data[[ii]]$x0,
+                                     cond.data[[ii]]$y0)
+
+        .dt1 <- setDT(.cs1) %>% 
+            dplyr::rename(x.col = variants) %>%
+            dplyr::rename(y.col = traits) %>%
+            dplyr::left_join(.marg1) %>%
+            as.data.table()
+
+        .dt0 <- setDT(.cs0) %>% 
+            dplyr::rename(x.col = variants) %>%
+            dplyr::rename(y.col = traits) %>%
+            dplyr::left_join(.marg0) %>% 
+            as.data.table()
 
         if(nrow(.dt1) > 0){
             .dt1[, cond := .w]
@@ -361,13 +433,15 @@ for(g in genes){
         message("... ", .w)
     }
 
-    .out <- as.data.frame(.temp) %>%
+    .temp.argmax <- .temp[order(p.val, - abs(z)),
+                          head(.SD, 1),
+                          by = .(x.col, y.col, cond, W)]
+
+    .out <- as.data.frame(.temp.argmax) %>%
         dplyr::left_join(x.dt) %>% 
         dplyr::left_join(y.dt) %>% 
         dplyr::select(-y.col, -x.col) %>%
         dplyr::mutate(gene = g) %>%
-        dplyr::filter(physical.pos >= (tss - cis.dist)) %>% 
-        dplyr::filter(physical.pos <= (tes + cis.dist)) %>% 
         na.omit() %>%
         as.data.table()
 
