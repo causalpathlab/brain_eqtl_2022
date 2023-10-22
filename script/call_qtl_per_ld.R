@@ -278,8 +278,8 @@ for(g in genes){
 
     if(nrow(susie.dt) < 1) next
 
-    .out <-
-        susie.dt %>% 
+    .temp <- 
+        as.data.frame(susie.dt) %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
         left_join(marg.stat) %>%
@@ -288,6 +288,10 @@ for(g in genes){
         na.omit() %>%
         as.data.table()
 
+    .out <- .temp[order(p.val, - abs(z)),
+                  head(.SD, 1),
+                  by = .(x.col, y.col)]
+    
     message("Computed: ", g)
 
     output <- rbind(output, .out)
