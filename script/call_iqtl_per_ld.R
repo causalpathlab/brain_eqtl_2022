@@ -204,9 +204,10 @@ svd.theta <- function(.svd, k, zz){
 }
 
 svd.pgs <- function(.svd, k, zz){
+    kk <- min(ncol(.svd$u),k)
     lambda <- 1/nrow(.svd$u)
-    udinv.k <- sweep(.svd$u[, 1:k, drop = F], 2, 1/(.svd$d[1:k] + sqrt(lambda)), `*`)
-    vz.k <- t(.svd$v[, 1:k, drop = F]) %*% zz
+    udinv.k <- sweep(.svd$u[, 1:kk, drop = F], 2, 1/(.svd$d[1:kk] + sqrt(lambda)), `*`)
+    vz.k <- t(.svd$v[, 1:kk, drop = F]) %*% zz
     udinv.k %*% vz.k
 }
 
