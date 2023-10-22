@@ -290,7 +290,7 @@ for(g in genes){
 
     .out <- .temp[order(p.val, - abs(z)),
                   head(.SD, 1),
-                  by = .(x.col, y.col)]
+                  by = .(physical.pos, celltype)]
     
     message("Computed: ", g)
 
