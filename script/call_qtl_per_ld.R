@@ -233,6 +233,9 @@ for(g in genes){
     .lm <- .safe.lm(Y, covar)
 
     plink.cis <- crop.plink.cis(plink, tss, tes, cis.dist)
+
+    if(ncol(plink.cis$bed) < 1 || nrow(plink.cis$map) < 1) next
+
     .data <- match.with.plink(.lm$residuals, plink.cis)
     .data$x <- apply(.data$x, 2, scale)
 
