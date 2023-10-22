@@ -2,7 +2,7 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 1381
+## ld.index <- 1609
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## herit.dir <- "result/step4/heritability/"
@@ -22,6 +22,12 @@ svd.file <- argv[6]
 pheno.file <- argv[7]
 max.K <- argv[8]
 out.file <- argv[9]
+
+################################################################
+
+LFSR.CUTOFF <- .2
+ALPHA.CUTOFF <- .05
+P.CUTOFF <- .05
 
 ################################################################
 
@@ -381,68 +387,77 @@ for(g in genes){
 
         .w <- names(cond.data)[ii]
 
-        .cs0 <- mtSusie::susie_cs(X = cond.data[[ii]]$x0,
-                                  Y = cond.data[[ii]]$y0,
-                                  L = 7,
-                                  tol = 1e-4,
-                                  clamp = 4,
-                                  prior.var = .01,
-                                  coverage = .95,
-                                  update.prior = T,
-                                  local.residual = T)
+        .mt.cs <- data.table()
 
-        .cs1 <- mtSusie::susie_cs(X = cond.data[[ii]]$x1,
-                                  Y = cond.data[[ii]]$y1,
-                                  L = 7,
-                                  tol = 1e-4,
-                                  clamp = 4,
-                                  prior.var = .01,
-                                  coverage = .95,
-                                  update.prior = T,
-                                  local.residual = T)
+        for(jj in 1:ncol(cond.data[[ii]]$y0)){
+            x.comb <- rbind(cond.data[[ii]]$x0,
+                            cond.data[[ii]]$x1)
+
+            y.comb <- rbind(cbind(cond.data[[ii]]$y0[,jj], NA),
+                            cbind(NA, cond.data[[ii]]$y1[,jj]))
+
+            .mt.j <- mtSusie::mt_susie(X = x.comb,
+                                       Y = y.comb,
+                                       L = 7,
+                                       tol = 1e-4,
+                                       clamp = 4,
+                                       prior.var = .01,
+                                       coverage = .9,
+                                       update.prior = T,
+                                       local.residual = T)                         
+            .mt.cs.j <- setDT(.mt.j$cs)
+            .mt.cs.j[, W := `traits` - 1]
+            .mt.cs.j[, traits := jj]
+
+            .mt.cs <- rbind(.mt.cs, .mt.cs.j)
+        }
 
         .marg1 <- take.marginal.stat(cond.data[[ii]]$x1,
                                      cond.data[[ii]]$y1)
+        .marg1[, W := 1]
 
         .marg0 <- take.marginal.stat(cond.data[[ii]]$x0,
                                      cond.data[[ii]]$y0)
+        .marg0[, W := 0]
 
-        .dt1 <- setDT(.cs1) %>% 
+        .marg <- rbind(.marg1, .marg0)
+
+        .combined <- 
+            .mt.cs %>%
             dplyr::rename(x.col = variants) %>%
             dplyr::rename(y.col = traits) %>%
-            dplyr::left_join(.marg1) %>%
+            dplyr::left_join(.marg) %>%
+            dplyr::mutate(cond = .w) %>% 
             as.data.table()
 
-        .dt0 <- setDT(.cs0) %>% 
-            dplyr::rename(x.col = variants) %>%
-            dplyr::rename(y.col = traits) %>%
-            dplyr::left_join(.marg0) %>% 
-            as.data.table()
-
-        if(nrow(.dt1) > 0){
-            .dt1[, cond := .w]
-            .dt1[, W := 1]
-            .temp <- rbind(.temp, .dt1)
+        if(nrow(.combined) > 0){
+            .temp <- rbind(.temp, .combined)
         }
 
-        if(nrow(.dt0) > 0){
-            .dt0[, cond := .w]
-            .dt0[, W := 0]
-            .temp <- rbind(.temp, .dt0)
-        }
         message("... ", .w)
     }
 
+    ## assign to the best level
     .temp.argmax <- .temp[order(p.val, - abs(z)),
                           head(.SD, 1),
                           by = .(x.col, y.col, cond, W)]
 
-    .out <- as.data.frame(.temp.argmax) %>%
+    ## keep only these variants
+    .keep <-
+        as.data.frame(.temp.argmax) %>%
+        na.omit() %>%
+        dplyr::filter(lfsr < LFSR.CUTOFF) %>% 
+        dplyr::filter(p.val < P.CUTOFF | alpha > ALPHA.CUTOFF) %>%
+        dplyr::select(x.col) %>%
+        unique() %>%
+        unlist(use.names = F)
+
+    .out <-
+        .temp.argmax[x.col %in% .keep] %>% 
         dplyr::left_join(x.dt) %>% 
         dplyr::left_join(y.dt) %>% 
         dplyr::select(-y.col, -x.col) %>%
         dplyr::mutate(gene = g) %>%
-        na.omit() %>%
         as.data.table()
 
     message("Computed: ", g)
