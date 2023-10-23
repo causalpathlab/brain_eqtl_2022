@@ -291,6 +291,7 @@ rule rsync_step4_up:
 rule rsync_step4_down:
     shell:
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/twas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/itwas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/iqtl ./result/step4/ --exclude=\"*temp\" --progress --size-only;"
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/heritability ./result/step4/ --exclude=\"*temp\" --progress --size-only;"
@@ -301,14 +302,13 @@ rule rsync_jobs_up:
 
 rule step4_run:
     input:
-        expand("result/step4/qtl/PC{nPC}/{ld}.txt.gz",
+        expand("result/step4/{qtl}/PC{nPC}/{ld}.txt.gz",
                ld=range(1,1704),
+               qtl=["qtl","iqtl"],
                nPC=[37, 70, 100]),
-        expand("result/step4/iqtl/PC{nPC}/{ld}.txt.gz",
+        expand("result/step4/{twas}/{gwas}/PC{nPC}/{ld}.txt.gz",
                ld=range(1,1704),
-               nPC=[37, 70, 100]),
-        expand("result/step4/twas/{gwas}/PC{nPC}/{ld}.txt.gz",
-               ld=range(1,1704),
+               twas=["twas","itwas"],
                gwas="AD",
                nPC=[37, 70, 100])
 
@@ -454,4 +454,3 @@ rule _step4_jobs_heritability:
                        [input.ldfile, "result/step4/rosmap", input.expr, input.svd, wildcards.nPC],
                        mem=2048,
                        maxtime="10:00:00")
-
