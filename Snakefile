@@ -200,14 +200,23 @@ rule rsync_step3_up:
 # Call eQTLs and TWAS #
 #######################
 
+## list(range(10,50,5)) + list(range(50,101,20)) + [100]
 COVAR_PCs = list(range(10,50)) + list(range(50,101,10)) + [100]
 
 rule step4:
     input:
         expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
         expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_PCs),
-        expand("result/step4/combined/qtl_PC{pc}.vcf.gz{ext}", pc=[37], ext=["",".tbi"]),
-        expand("result/step4/combined/ld_twas_{gwas}_PC{pc}.txt.gz", pc=[37], gwas=["AD"])
+        expand("result/step4/combined/qtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
+        expand("result/step4/combined/iqtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
+        expand("result/step4/combined/ld_twas_{gwas}_PC{pc}.txt.gz", pc=[37, 70, 100], gwas=["AD"])
+
+rule step4_dropbox:
+    shell:
+        "rsync -argv result/step4/combined/*heritability* ~/Dropbox/Writing/AD430/1.Results/3.eQTL/heritability/ --progress; "
+        "rsync -argv result/step4/combined/*qtl* ~/Dropbox/Writing/AD430/1.Results/3.eQTL/qtl/ --progress --size-only --exclude=\"*.vcf\"; "
+        "rsync -argv result/step4/combined/*twas* ~/Dropbox/Writing/AD430/1.Results/3.eQTL/twas/ --progress --size-only; "
+        "echo \"Done\""
 
 ###############################
 # genotype Q/C and queue jobs #
@@ -254,8 +263,9 @@ rule step4_post_vcf_sort:
         taboo = "#chromosome"
     shell:
         "mkdir -p result/step4/combined/; "
-        "cat <(cat result/step4/{params.ddir}/*.txt.gz | gzip -cd | head | awk 'NR == 1') "
-        "<(cat result/step4/{params.ddir}/*.txt.gz | gzip -cd | awk '$1 != \"{params.taboo}\"' | sort -k1,1 -k2,2n) > {output.vcf}"
+        "[ -d {output.vcf}_temp ] || mkdir -p {output.vcf}_temp; "
+        "find result/step4/{params.ddir}/ -name *.gz -size +0 | xargs -I file zcat file | awk -F '\\t' -v TABOO={params.taboo} -v TEMP={output.vcf}_temp/ 'NR == 1 {{ print $0; next }} NR > 1 && $1 != TABOO {{ print $0 | (\"sort  -k1,1 -k2,2n -T \" TEMP) }}' > {output.vcf}; "
+        "[ -d {output.vcf}_temp ] && rm -rf {output.vcf}_temp;"
 
 rule step4_post_ld_jobs:
     output: "result/step4/combined/{jobname}.txt.gz"
@@ -269,9 +279,10 @@ rule step4_post_ld_jobs:
 rule step4_jobs:
     input:
         expand("jobs/step4/heritability_{nPC}.sh",  nPC=COVAR_PCs),
-        expand("jobs/step4/qtl_{nPC}.sh",  nPC=37),
-        expand("jobs/step4/twas_{gwas}_{nPC}.sh",  gwas="AD", nPC=37),
-        expand("jobs/step4/gwas_pgs_{gwas}.sh",  gwas="AD")
+        expand("jobs/step4/qtl_{nPC}.sh",  nPC=[37, 70, 100]),
+        expand("jobs/step4/iqtl_{nPC}.sh",  nPC=[37, 70, 100]),
+        expand("jobs/step4/twas_{gwas}_{nPC}.sh",  gwas="AD", nPC=[37, 70, 100]),
+        expand("jobs/step4/itwas_{gwas}_{nPC}.sh",  gwas="AD", nPC=[37, 70, 100])
 
 rule rsync_step4_up:
     shell:
@@ -281,56 +292,52 @@ rule rsync_step4_down:
     shell:
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/twas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/qtl ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
-        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/gwas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
-        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/heritability ./result/step4/ --exclude=\"*temp\" --progress --size-only"
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/iqtl ./result/step4/ --exclude=\"*temp\" --progress --size-only;"
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/heritability ./result/step4/ --exclude=\"*temp\" --progress --size-only;"
 
 rule rsync_jobs_up:
     shell:
         "rsync -argv ./jobs numbers:/home/ypark/work/brain_eqtl_2022/ --exclude=\"*temp\" --progress;"
 
-rule _step4_jobs_gwas_pgs:
+rule step4_run:
     input:
-        ldfile="data/LD.info.txt",
-        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
-        gwas_dir="data/gwas/",
-    output:
-        queue="jobs/step4/gwas_pgs_{gwas}.sh"
-    run:
-        mkdir("jobs/step4")
-        with open(output.queue, "w") as fh:
-            sys.stdout = fh
-            print_Rjob("gwas_pgs",
-                       "script/call_gwas_pgs_per_ld.R",
-                       "result/step4/gwas/" + wildcards.gwas + "/",
-                       [input.ldfile, "result/step4/rosmap", (input.gwas_dir + "/" + wildcards.gwas + ".vcf.gz")],
-                       mem=2048,
-                       maxtime="2:00:00",
-                       file_ext="pgs.gz")
-
-rule step4_run_twas:
-    input:
+        expand("result/step4/qtl/PC{nPC}/{ld}.txt.gz",
+               ld=range(1,1704),
+               nPC=[37, 70, 100]),
+        expand("result/step4/iqtl/PC{nPC}/{ld}.txt.gz",
+               ld=range(1,1704),
+               nPC=[37, 70, 100]),
         expand("result/step4/twas/{gwas}/PC{nPC}/{ld}.txt.gz",
                ld=range(1,1704),
                gwas="AD",
-               nPC=37)
+               nPC=[37, 70, 100])
 
 rule _step4_run_twas:
     input:
         ldfile="data/LD.info.txt",
         qtl_dir="result/step4/qtl/",
-        gwas_dir="result/step4/gwas/",
         gwas_stat_dir="data/gwas",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
     output:
         "result/step4/twas/{gwas}/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_twas_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {input.gwas_dir}/{wildcards.gwas} {output}"
+        "Rscript --vanilla script/call_twas_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
+
+rule _step4_run_itwas:
+    input:
+        ldfile="data/LD.info.txt",
+        qtl_dir="result/step4/iqtl/",
+        gwas_stat_dir="data/gwas",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/itwas/{gwas}/PC{nPC}/{ld}.txt.gz"
+    shell:
+        "Rscript --vanilla script/call_twas_conditional_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
 
 rule _step4_jobs_twas:
     input:
         ldfile="data/LD.info.txt",
         qtl_dir="result/step4/qtl/",
-        gwas_dir="result/step4/gwas/",
         gwas_stat_dir="data/gwas",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
     output:
@@ -342,9 +349,62 @@ rule _step4_jobs_twas:
             print_Rjob("twas",
                        "script/call_twas_per_ld.R",
                        "result/step4/twas/" + wildcards.gwas + "/PC" + wildcards.nPC,
-                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_stat_dir + "/" + wildcards.gwas + ".vcf.gz", input.gwas_dir + "/" + wildcards.gwas],
+                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_stat_dir + "/" + wildcards.gwas + ".vcf.gz"],
                        mem=2048,
                        maxtime="4:00:00")
+
+rule _step4_jobs_itwas:
+    input:
+        ldfile="data/LD.info.txt",
+        qtl_dir="result/step4/iqtl/",
+        gwas_stat_dir="data/gwas",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        queue="jobs/step4/itwas_{gwas}_{nPC}.sh"
+    run:
+        mkdir("jobs/step4")
+        with open(output.queue, "w") as fh:
+            sys.stdout = fh
+            print_Rjob("twas",
+                       "script/call_twas_conditional_per_ld.R",
+                       "result/step4/itwas/" + wildcards.gwas + "/PC" + wildcards.nPC,
+                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_stat_dir + "/" + wildcards.gwas + ".vcf.gz"],
+                       mem=2048,
+                       maxtime="4:00:00")
+
+rule _step4_jobs_iqtl:
+    input:
+        ldfile="data/LD.info.txt",
+        expr="result/step3/log_mean.bed.gz",
+        svd="result/step3/svd.rds",
+        herit = "result/step4/heritability",
+        pheno = "data/metadata_PFC_all_individuals_092520.tsv.gz",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        queue="jobs/step4/iqtl_{nPC}.sh"
+    run:
+        mkdir("jobs/step4")
+        with open(output.queue, "w") as fh:
+            sys.stdout = fh
+            print_Rjob("iqtl",
+                       "script/call_iqtl_per_ld.R",
+                       "result/step4/iqtl/PC" + wildcards.nPC,
+                       [input.ldfile, "result/step4/rosmap", input.expr, input.herit, input.svd, input.pheno, wildcards.nPC],
+                       mem = 2048,
+                       maxtime = "4:00:00")
+
+rule _step4_run_iqtl:
+    input:
+        ldfile="data/LD.info.txt",
+        expr="result/step3/log_mean.bed.gz",
+        svd="result/step3/svd.rds",
+        herit = "result/step4/heritability",
+        pheno = "data/metadata_PFC_all_individuals_092520.tsv.gz",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/iqtl/PC{nPC}/{ld}.txt.gz"
+    shell:
+        "Rscript --vanilla script/call_iqtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.herit} {input.svd} {input.pheno} {wildcards.nPC} {output}"
 
 rule _step4_jobs_qtl:
     input:
@@ -364,6 +424,17 @@ rule _step4_jobs_qtl:
                        [input.ldfile, "result/step4/rosmap", input.expr, input.svd, wildcards.nPC],
                        mem=2048,
                        maxtime="4:00:00")
+
+rule _step4_run_qtl:
+    input:
+        ldfile="data/LD.info.txt",
+        expr="result/step3/log_mean.bed.gz",
+        svd="result/step3/svd.rds",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/qtl/PC{nPC}/{ld}.txt.gz"
+    shell:
+        "Rscript --vanilla script/call_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
 
 rule _step4_jobs_heritability:
     input:

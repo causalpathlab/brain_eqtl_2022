@@ -4,7 +4,7 @@ argv <- commandArgs(trailingOnly = TRUE)
 ## ld.index <- 207
 ## ld.file <- "data/LD.info.txt"
 ## geno.hdr <- "result/step4/rosmap"
-## qtl.dir <- "result/step4/qtl/PC37/"
+## qtl.dir <- "result/step4/iqtl/PC37/"
 ## gwas.stat.file <- "data/gwas/AD.vcf.gz"
 ## out.file <- "output.txt.gz"
 
@@ -59,29 +59,6 @@ subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
     plink <- tryCatch(.subset(plink.hdr, chr, plink.lb, plink.ub, temp.dir),
                       error=.error)
     return(plink)
-}
-
-fast.z <- function (x, y)
-{
-    n.obs <- crossprod(!is.na(x), !is.na(y))
-    ret <- crossprod(replace(x, is.na(x), 0), replace(y, is.na(y), 0))/sqrt(n.obs)
-    ret[is.na(ret)] <- 0
-    return(ret)
-}
-
-.safe.lm <- function(Y, C){
-    Y.resid <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
-    Y.fitted <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
-    for(j in 1:ncol(Y)){
-        .lm <- lm(Y[, j] ~ C, na.action = "na.exclude")
-        Y.resid[,j] <- residuals(.lm)
-        Y.fitted[,j] <- fitted(.lm)
-    }
-    rownames(Y.resid) <- rownames(Y)
-    rownames(Y.fitted) <- rownames(Y)
-    colnames(Y.resid) <- colnames(Y)
-    colnames(Y.fitted) <- colnames(Y)
-    list(fitted = Y.fitted, residuals = Y.resid)
 }
 
 safe.scale <- function(.mat){
@@ -213,7 +190,7 @@ create.twas.dt <- function(qtl.mu, gwas.dt, plink){
     .mu <- as.matrix(qtl.mu[, -1, drop = F])
     .svd <- rsvd::rsvd(xx/sqrt(nrow(xx)))
 
-    compute.twas(.svd, .mu, zz, pve.cutoff = .9)
+    compute.twas(.svd, .mu, zz, pve.cutoff = .95)
 }
 
 ################################################################
@@ -253,11 +230,11 @@ if(nrow(qtl.mu.dt) < 1){
 message("Read QTL results")
 
 model.info <- qtl.mu.dt[, .(lfsr = min(lfsr)),
-                       by = .(gene, celltype)]
+                       by = .(gene, cond, W, celltype)]
 
 qtl.mu <-
     dcast(qtl.mu.dt,
-          physical.pos ~ celltype + gene,
+          physical.pos ~ cond + W + celltype + gene,
           fill = 0,
           value.var = "mu",
           fun.aggregate = mean)
@@ -273,13 +250,14 @@ message("Read GWAS summary statistics")
 
 stwas.stat <- create.twas.dt(qtl.mu, gwas.dt, plink)
 
-stwas.stat[, c("celltype", "gene") := tstrsplit(`col`, split="_")]
+stwas.stat[, c("cond", "W", "celltype", "gene") := tstrsplit(`col`, split="_")]
+stwas.stat[, W := as.integer(W)]
 stwas.stat[, `col` := NULL]
 stwas.stat[, stwas.p.val := 2*pnorm(-abs(`stwas.z`), lower.tail=T)]
 
 out.dt <- as.data.frame(stwas.stat) %>%
     dplyr::mutate(ld = ld.index) %>%
-    dplyr::select(`ld`, `gene`, `celltype`,
+    dplyr::select(`ld`, `gene`, `cond`, `W`, `celltype`,
                   dplyr::starts_with("stwas")) %>%
     dplyr::left_join(model.info) %>%
     as.data.table()
