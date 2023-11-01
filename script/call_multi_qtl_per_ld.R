@@ -2,7 +2,7 @@ argv <- commandArgs(trailingOnly = TRUE)
 options(stringsAsFactors = FALSE)
 
 ## ld.file <- "data/LD.info.txt"
-## ld.index <- 1609
+## ld.index <- 207
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## svd.file <- "result/step3/svd.rds"
@@ -21,6 +21,7 @@ out.file <- argv[7]
 
 PV <- 1e-4   # p-value
 ALPHA <- 0.1 # PIP cutoff
+LFSR <- .05  # local false sign range
 
 ################################################################
 
@@ -162,6 +163,24 @@ take.marginal.stat <- function(xx, yy, se.min=1e-8) {
     return(out)
 }
 
+.quantile.norm <- function(.mat) {
+    stopifnot(is.matrix(.mat))
+    ret <- .mat
+    for(k in 1:ncol(ret)){
+        x.k <- .mat[, k]
+        .pos.k <- which(is.finite(x.k))
+        x.k.valid <- x.k[.pos.k]
+        ngenes <- length(x.k.valid)
+        if(ngenes < 1) next
+        qq <- qnorm((1:ngenes)/(ngenes + 1))
+        x.k.valid[order(x.k.valid)] <- qq
+        ret[.pos.k, k] <- x.k.valid
+    }
+    rownames(ret) <- rownames(.mat)
+    colnames(ret) <- colnames(.mat)
+    return(ret)
+}
+
 ################################################################
 
 temp.dir <- paste0(out.file, "_temp")
@@ -203,6 +222,7 @@ for(g in genes){
     y.ct <- .temp$celltype
     Y <- as.matrix(t(.temp[, -(1:6)]))
     colnames(Y) <- y.ct
+    Y <- .quantile.norm(Y)
 
     observed <- apply(!is.na(Y), 2, mean)
     if(sum(observed >= .10) < 1) next
@@ -240,15 +260,17 @@ for(g in genes){
     ## fine-mapping ##
     ##################
 
+    .data$x[!is.finite(.data$x)] <- NA
+    .data$y[!is.finite(.data$y)] <- NA
+
     ## Intersection with the multi-trait fine-mapping
     mtsusie <- mtSusie::mt_susie(X = .data$x,
                                  Y = .data$y,
-                                 L = 29,
-                                 clamp = 4,
-                                 tol = 1e-4,
+                                 L = 30,
+                                 clamp = 8,
+                                 tol = 1e-8,
                                  prior.var = .01,
-                                 coverage = .9,
-                                 update.prior = T)
+                                 coverage = .95)
 
     susie.dt <- setDT(mtsusie$cs)
 
@@ -260,7 +282,7 @@ for(g in genes){
     marg.stat <-
         take.marginal.stat(.data$x, .data$y)
 
-    .out <- 
+    .temp <- 
         as.data.frame(susie.dt) %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
@@ -272,9 +294,15 @@ for(g in genes){
         na.omit() %>%
         as.data.table()
 
+    ## assign the best level for each QTL
+    .out <- .temp[order(abs(z), decreasing = TRUE),
+                  head(.SD, 1),
+                  by = .(physical.pos, celltype)]
+
     ## keeping everything will be too much
     .valid.pos <-
-        .out[p.val < PV | alpha > ALPHA, .(physical.pos)] %>%
+        .out[p.val < PV | (alpha > ALPHA & lfsr < LFSR),
+             .(physical.pos)] %>%
         unlist(use.names = F)
 
     .out.qc <- .out[physical.pos %in% .valid.pos]
