@@ -282,7 +282,7 @@ for(g in genes){
     marg.stat <-
         take.marginal.stat(.data$x, .data$y)
 
-    .temp <- 
+    .out <- 
         as.data.frame(susie.dt) %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
@@ -293,11 +293,6 @@ for(g in genes){
         dplyr::mutate(gene = g) %>%
         na.omit() %>%
         as.data.table()
-
-    ## assign the best level for each QTL
-    .out <- .temp[order(abs(z), decreasing = TRUE),
-                  head(.SD, 1),
-                  by = .(physical.pos, celltype)]
 
     ## keeping everything will be too much
     .valid.pos <-
