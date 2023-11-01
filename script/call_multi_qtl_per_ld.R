@@ -1,16 +1,15 @@
-options(stringsAsFactors = FALSE)
 argv <- commandArgs(trailingOnly = TRUE)
+options(stringsAsFactors = FALSE)
 
-## ld.index <- 207
 ## ld.file <- "data/LD.info.txt"
+## ld.index <- 1609
 ## geno.hdr <- "result/step4/rosmap"
 ## expr.file <- "result/step3/log_mean.bed.gz"
 ## svd.file <- "result/step3/svd.rds"
 ## max.K <- 37
-## gwas.stat.file <- "data/gwas/AD.vcf.gz"
 ## out.file <- "output.txt.gz"
 
-if(length(argv) < 8) q()
+if(length(argv) < 7) q()
 
 ld.index <- as.integer(argv[1])
 ld.file <- argv[2]
@@ -18,8 +17,7 @@ geno.hdr <- argv[3]
 expr.file <- argv[4]
 svd.file <- argv[5]
 max.K <- argv[6]
-gwas.stat.file <- argv[7]
-out.file <- argv[8]
+out.file <- argv[7]
 
 ################################################################
 
@@ -63,14 +61,6 @@ subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
     return(plink)
 }
 
-fast.z <- function (x, y)
-{
-    n.obs <- crossprod(!is.na(x), !is.na(y))
-    ret <- crossprod(replace(x, is.na(x), 0), replace(y, is.na(y), 0))/sqrt(n.obs)
-    ret[is.na(ret)] <- 0
-    return(ret)
-}
-
 .safe.lm <- function(Y, C){
     Y.resid <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
     Y.fitted <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
@@ -86,36 +76,7 @@ fast.z <- function (x, y)
     list(fitted = Y.fitted, residuals = Y.resid)
 }
 
-safe.scale <- function(.mat){
-    ret <- apply(.mat, 2, scale)
-    ret[is.na(ret)] <- 0
-    ret
-}
-
-read.gwas <- function(gwas.file, .query){
-
-    .ret.1 <- fread(cmd="tabix " %&% gwas.file %&% " chr" %&% .query %&% " -h", sep = "\t")
-    .ret <- fread(cmd="tabix " %&% gwas.file %&% " " %&% .query %&% " -h", sep = "\t")
-
-    print(gwas.file)
-
-    .ret <- rbind(.ret, .ret.1) %>%
-        as.data.table()
-
-    .trait <- gsub(".vcf.gz$", "", basename(gwas.file))
-    .ret[, trait := .trait]
-
-    .ret[order(p_value),
-         head(.SD, 1),
-         by = .(position)][,
-                           .(position, variant_id,
-                             p_value,
-                             effect_allele,
-                             other_allele,
-                             beta, standard_error)]
-}
-
-match.expr.plink <- function(Y, plink){
+match.with.plink <- function(Y, plink){
 
     .y.info <- data.table(projid = as.integer(rownames(Y)))
     .y.info[, y.row := 1:.N]
@@ -133,24 +94,6 @@ match.expr.plink <- function(Y, plink){
                 y = Y[.match$y.row, , drop = FALSE])
 
     return(ret)
-}
-
-match.gwas.plink <- function(gwas.dt, plink){
-    ## match with plink
-    matched <-
-        left_join(plink$map, gwas.dt) %>%
-        as.data.table()
-
-    if(nrow(matched) < 1) {
-        return(data.table())
-    }
-
-    matched[effect_allele == allele1, beta.flip := beta]
-    matched[effect_allele == allele2, beta.flip := -beta]
-    matched[is.na(beta.flip), beta.flip := 0]
-    matched[, z := `beta.flip`/`standard_error`]
-
-    return(matched)
 }
 
 crop.plink.cis <- function(plink, tss, tes, cis){
@@ -183,13 +126,6 @@ crop.plink.cis <- function(plink, tss, tes, cis){
     return(ret)
 }
 
-svd.pgs <- function(.svd, zz){
-    zz[is.na(zz)] <- 0
-    lambda <- 1/nrow(.svd$u)
-    vdinv <- sweep(.svd$v, 2, 1/(.svd$d + lambda), `*`)
-    .svd$u %*% (t(vdinv) %*% zz)
-}
-
 ################################################################
 
 temp.dir <- paste0(out.file, "_temp")
@@ -200,16 +136,9 @@ cis.dist <- 5e5
 
 ld.info <- fread(ld.file)
 ld.info[, chr := as.integer(gsub("chr","",`chr`))]
-ld.info[, query := paste0(`chr`, ":", `start`, "-", `stop`)]
+ld.info[, query := paste0(`chr`, ":", pmax(`start` - cis.dist, 0), "-", as.integer(`stop` + cis.dist))]
 
 .query <- ld.info[ld.index, ]$query
-
-gwas.dt <-
-    read.gwas(gwas.stat.file, .query) %>%
-    mutate(physical.pos = position) %>%
-    as.data.table()
-
-message("Read GWAS summary statistics")
 
 plink <- subset.plink(geno.hdr, ld.info[ld.index]$`chr`,
                       plink.lb = ld.info[ld.index]$`start`,
@@ -251,12 +180,16 @@ for(g in genes){
 
     .lm <- .safe.lm(Y, covar)
 
-    ## Just focus on the cis window
     plink.cis <- crop.plink.cis(plink, tss, tes, cis.dist)
 
-    if(nrow(plink.cis$map) < 1) next
+    if(ncol(plink.cis$bed) < 1 || nrow(plink.cis$map) < 1) next
 
-    .data <- match.expr.plink(.lm$residuals, plink.cis)
+    .data <- match.with.plink(.lm$residuals, plink.cis)
+    .data$x <- apply(.data$x, 2, scale)
+
+    xx <- .data$x
+    xx[is.na(xx)] <- 0
+    yy <- .data$y
 
     x.dt <- as.data.table(plink.cis$map)
     x.dt <- x.dt[, .(`chromosome`,
@@ -268,60 +201,44 @@ for(g in genes){
     y.dt <- data.table(celltype=colnames(.data$y),
                        y.col=1:ncol(.data$y))
 
-    ## slice GWAS
-    .gwas <- match.gwas.plink(gwas.dt, plink.cis)
+    ##################
+    ## fine-mapping ##
+    ##################
 
-    kk <- min(500, min(dim(.data$x)))
+    ## Intersection with the multi-trait fine-mapping
+    mtsusie <- mtSusie::mt_susie(X = .data$x,
+                                 Y = .data$y,
+                                 L = 30,
+                                 clamp = 4,
+                                 tol = 1e-4,
+                                 prior.var = .01,
+                                 coverage = .95,
+                                 update.prior = T,
+                                 local.residual = T)
 
-    .svd.geno <- rsvd::rsvd(safe.scale(.data$x) / sqrt(nrow(.data$x)), k=kk)
+    susie.dt <- setDT(mtsusie$cs)
 
-    y.gwas <- svd.pgs(.svd.geno, as.matrix(.gwas[, .(z)]))
+    if(nrow(susie.dt) < 1) next
 
-    coloc.g <- data.table()
+    .temp <- 
+        as.data.frame(susie.dt) %>% 
+        dplyr::rename(x.col = variants) %>%
+        dplyr::rename(y.col = traits) %>%
+        dplyr::left_join(x.dt, by="x.col") %>%
+        dplyr::left_join(y.dt, by="y.col") %>%
+        dplyr::select(-y.col, -x.col) %>%
+        dplyr::mutate(gene = g) %>%
+        na.omit() %>%
+        as.data.table()
 
-    for(j in 1:ncol(.data$y)){
-
-        yy.j <- cbind(.data$y[, j, drop = F], y.gwas)
-
-        .joint <- mtSusie::mt_susie(X = .data$x,
-                                    Y = yy.j,
-                                    L = 10,
-                                    clamp = 8,
-                                    tol = 1e-4,
-                                    prior.var = .01,
-                                    coverage = .95,
-                                    update.prior = T,
-                                    local.residual = T)
-
-        .temp.j <- setDT(.joint$cs)
-
-        .vars.j <-
-            .temp.j[lodds > 0, .(n = .N),
-                             by = .(variants, levels)] %>%
-            dplyr::filter(`n` > 1) %>%
-            dplyr::select(-`n`) %>%
-            dplyr::left_join(.temp.j) %>% 
-            dplyr::filter(traits == 1) %>% ## just keep the eQTL side
-            dplyr::mutate(traits = j) %>%  ## 
-            dplyr::rename(x.col = variants) %>%
-            dplyr::rename(y.col = traits) %>%
-            dplyr::left_join(x.dt, by="x.col") %>%
-            dplyr::left_join(y.dt, by="y.col") %>%
-            dplyr::select(-y.col, -x.col) %>%
-            as.data.table()
-
-        coloc.g <- rbind(coloc.g, .vars.j)
-    }
-
-    if(nrow(coloc.g) < 1) next
-
-    coloc.g[, gene := g]
-
+    .out <- .temp[order(- abs(z)),
+                  head(.SD, 1),
+                  by = .(physical.pos, celltype)]
+    
     message("Computed: ", g)
 
-    output <- rbind(output, coloc.g)
+    output <- rbind(output, .out)
 }
-
 
 message("Computed all the genes")
 
@@ -345,9 +262,5 @@ if(nrow(output) < 1){
         as.data.table()
 
     fwrite(out.dt, file=out.file, sep="\t")
-
 }
-
 unlink(temp.dir, recursive=TRUE)
-
-message("Done")

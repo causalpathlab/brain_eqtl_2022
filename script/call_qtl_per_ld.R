@@ -25,7 +25,6 @@ library(data.table)
 library(dplyr)
 library(reshape2)
 library(rsvd)
-library(susieR)
 
 `%&%` <- function(a,b) paste0(a,b)
 
