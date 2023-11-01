@@ -209,6 +209,7 @@ rule step4:
         expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_PCs),
         expand("result/step4/combined/qtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
         expand("result/step4/combined/iqtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
+        expand("result/step4/combined/mqtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
         expand("result/step4/combined/ld_twas_{gwas}_PC{pc}.txt.gz", pc=[37, 70, 100], gwas=["AD"]),
         expand("result/step4/combined/ld_itwas_{gwas}_PC{pc}.txt.gz", pc=[37, 70, 100], gwas=["AD"]),
         expand("result/step4/combined/coloc_{gwas}_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], gwas=["AD"], ext=["",".tbi"])
@@ -295,6 +296,7 @@ rule rsync_step4_up:
 
 rule rsync_step4_down:
     shell:
+        "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/mqtl ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/coloc ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/twas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "
         "rsync -argv numbers:/home/ypark/work/brain_eqtl_2022/result/step4/itwas ./result/step4/ --exclude=\"*temp\" --progress --size-only; "

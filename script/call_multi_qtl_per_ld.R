@@ -19,6 +19,9 @@ svd.file <- argv[5]
 max.K <- argv[6]
 out.file <- argv[7]
 
+PV <- 1e-4   # p-value
+ALPHA <- 0.1 # PIP cutoff
+
 ################################################################
 
 library(data.table)
@@ -294,7 +297,11 @@ for(g in genes){
                   by = .(physical.pos, celltype)]
     
     ## keeping everything will be too much
-    .out.qc <- .out[(alpha > .01 | p.val < .01)]
+    .valid.pos <-
+        .out[p.val < PV | alpha > ALPHA, .(physical.pos)] %>%
+        unlist(use.names = F)
+
+    .out.qc <- .out[physical.pos %in% .valid.pos]
 
     message("Computed: ", g)
 
