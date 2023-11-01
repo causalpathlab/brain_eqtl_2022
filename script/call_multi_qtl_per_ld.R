@@ -108,6 +108,57 @@ crop.plink.cis <- function(plink, tss, tes, cis){
     return(ret)
 }
 
+take.marginal.stat <- function(xx, yy, se.min=1e-8) {
+    .xx <- apply(xx, 2, scale)
+    .yy <- apply(yy, 2, scale)
+    rm.na.zero <- function(xx) {
+        return(replace(xx, is.na(xx), 0))
+    }
+    n.obs <- crossprod(!is.na(.xx), !is.na(.yy))
+    beta.mat <- crossprod(rm.na.zero(.xx), rm.na.zero(.yy))/n.obs
+    ## calibrate residuals
+    resid.se.mat <- matrix(NA, ncol(.xx), ncol(.yy))
+    for (k in 1:ncol(.yy)) {
+        beta.k <- beta.mat[, k]
+        yy.k <- .yy[, k]
+        err.k <- sweep(sweep(.xx, 2, beta.k, `*`), 1, yy.k, `-`)
+        se.k <- apply(err.k, 2, sd, na.rm = TRUE)
+        resid.se.mat[, k] <- se.k + se.min
+    }
+    y.cols <- 1:ncol(yy)
+    colnames(beta.mat) <- y.cols
+    colnames(n.obs) <- y.cols
+    colnames(resid.se.mat) <- y.cols
+    rownames(resid.se.mat) <- rownames(beta.mat)
+    ## combine the results
+    .melt.mat <- function(.mat, ...) {
+        rownames(.mat) <- 1:nrow(.mat)
+        colnames(.mat) <- 1:ncol(.mat)
+        reshape2::melt(.mat, ...) %>%
+            dplyr::rename(x.col = Var1, y.col = Var2) %>%
+            as.data.table()
+    }
+    zscore.pvalue <- function(z) {
+        2*pnorm(abs(z), lower.tail = FALSE)
+    }
+    beta.dt <- .melt.mat(beta.mat, value.name = "beta")
+    resid.se.dt <- .melt.mat(resid.se.mat, value.name = "resid.se")
+    nobs.dt <- .melt.mat(n.obs, value.name = "n")
+    out <- beta.dt %>%
+        left_join(nobs.dt, by = c("x.col", "y.col")) %>%
+        left_join(resid.se.dt, by = c("x.col", "y.col")) %>%
+        dplyr::mutate(se = resid.se/sqrt(n)) %>%
+        dplyr::mutate(p.val = zscore.pvalue(beta/se)) %>%
+        dplyr::mutate(beta = round(beta, 4)) %>%
+        dplyr::select(-resid.se) %>%
+        dplyr::mutate(se = round(se, 4)) %>%
+        dplyr::mutate(x.col = as.integer(x.col)) %>%
+        dplyr::mutate(y.col = as.integer(y.col)) %>%
+        as.data.table()
+
+    return(out)
+}
+
 .quantile.norm <- function(.mat) {
     stopifnot(is.matrix(.mat))
     ret <- .mat
@@ -220,12 +271,19 @@ for(g in genes){
 
     if(nrow(susie.dt) < 1) next
 
+    #########################
+    ## marginal statistics ##
+    #########################
+    marg.stat <-
+        take.marginal.stat(.data$x, .data$y)
+
     .temp <- 
         as.data.frame(susie.dt) %>% 
         dplyr::rename(x.col = variants) %>%
         dplyr::rename(y.col = traits) %>%
         dplyr::left_join(x.dt, by="x.col") %>%
         dplyr::left_join(y.dt, by="y.col") %>%
+        dplyr::left_join(marg.stat) %>% 
         dplyr::select(-y.col, -x.col) %>%
         dplyr::mutate(gene = g) %>%
         na.omit() %>%
@@ -235,9 +293,12 @@ for(g in genes){
                   head(.SD, 1),
                   by = .(physical.pos, celltype)]
     
+    ## keeping everything will be too much
+    .out.qc <- .out[(alpha > .01 | p.val < .01)]
+
     message("Computed: ", g)
 
-    output <- rbind(output, .out)
+    output <- rbind(output, .out.qc)
 }
 
 message("Computed all the genes")
@@ -250,7 +311,8 @@ if(nrow(output) < 1){
         output %>%
         dplyr::select(`chromosome`, `physical.pos`, `levels`,
                       `gene`, `celltype`,
-                      `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`) %>%
+                      `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`,
+                      `beta`, `se`, `n`, `p.val`) %>%
         dplyr::mutate(`alpha` = round(`alpha`, 4),
                       `mean` = round(`mean`, 4),
                       `lbf` = round(`lbf`, 4),

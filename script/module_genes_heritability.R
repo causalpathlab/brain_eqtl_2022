@@ -148,7 +148,7 @@ mm <- rcpp_mmutil_info(null.data$mtx)$max.row
     rcpp_mmutil_bbknn_pca(mtx_file = null.data$mtx,
                           r_batches = rep("no.batch", nn),
                           knn = 50,
-                          RANK = mm,
+                          RANK = 25,
                           NUM_THREADS = 16,
                           RECIPROCAL_MATCH = TRUE,
                           TAKE_LN = FALSE,  # already did log1p
@@ -173,7 +173,7 @@ null.umap <- run.knn.umap(.bbknn.null$knn,
           fill = 0,
           fun.aggregate = max)
 
-Z <- qc.z.mat(.feat)
+Z <- round(qc.z.mat(.feat) * 100)
 
 obs.data <- write.temp.data(Z, obs.data.hdr)
 
@@ -183,8 +183,8 @@ obs.data <- write.temp.data(Z, obs.data.hdr)
 
 .bbknn <- rcpp_mmutil_bbknn_pca(mtx_file = obs.data$mtx,
                                 r_batches = .batch$membership,
-                                knn = 50,
-                                RANK = mm,
+                                knn = 100,
+                                RANK = 25,
                                 NUM_THREADS = 16,
                                 TAKE_LN = FALSE,
                                 COL_NORM = 10000,
@@ -192,8 +192,9 @@ obs.data <- write.temp.data(Z, obs.data.hdr)
 
 obs.umap <- run.knn.umap(.bbknn$knn.adj,
                          readLines(obs.data$col),
+                         res = 3,
                          nrepeat = 20,
-                         min.deg = 5,
+                         min.deg = 3,
                          min.size = 10)
 
 .obs.dt <- fread(herit.file) %>%
@@ -209,4 +210,4 @@ out.dt <-
     as.data.table()
 
 fwrite(out.dt, out.file, sep="\t", row.names = F, col.names = T)
-unlink(temp.dir)
+unlink(temp.dir, recursive = T)

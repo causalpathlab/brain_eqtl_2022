@@ -48,12 +48,14 @@ using $p$-vector $\mathbf{z}$. We also optimized the number of SVD components.
 
 ## Finding optimal number of principal components with CV cutoff 0.1
 
-
 ```{r include = FALSE}
 rr.cutoff <- 0.1
 
+data.dt[, pv := pnorm(`rr`/`rr.se`, lower.tail=F)]
+data.dt[, fwer := p.adjust(`pv`), by = .(`celltype`, `nPC`)]
+
 count.dt <-
-    data.dt[`rr` > rr.cutoff & `rr` > `rr.se` * 2,
+    data.dt[`rr` > rr.cutoff & `fwer` < .05,
             .(nmodels = .N,
               ngenes = length(unique(`gene`))),
             by = .(nPC)] %>%
@@ -84,27 +86,12 @@ plot.count <- function(count.dt){
 plot.count(count.dt)
 ```
 
-## Finding optimal number of principal components with CV cutoff 0.2
-
-```{r include = FALSE}
-rr.cutoff <- 0.2
-
-count.dt <-
-    data.dt[`rr` > rr.cutoff & `rr` > `rr.se` * 2,
-            .(nmodels = .N,
-              ngenes = length(unique(`gene`))),
-            by = .(nPC)] %>%
-    arrange(`nPC`)
-```
-
-```{r Fig_cv_corr_ngenes_strict, fig.width=5, fig.height=3}
-plot.count(count.dt)
-```
-
 ## Histograms across different cell types
 
 ```{r Fig_cv_density, fig.width=5.5, fig.height=2.8}
 .dt <- fread(paste0(data.dir, "heritability/ld_heritability_PC37.txt.gz"))
+.dt[, pv := pnorm(`rr`/`rr.se`, lower.tail=F)]
+.dt[, fwer := p.adjust(`pv`), by = .(`celltype`, `nPC`)]
 
 ggplot(.dt, aes(rr)) +
     xlab("Cross validation correlation") +
@@ -119,7 +106,7 @@ ggplot(.dt, aes(rr)) +
 
 ```{r Fig_cv_celltype_count, fig.width=5.5, fig.height=2.8}
 rr.cutoff <- 0.1
-.sum <- .dt[rr > rr.cutoff, .(.N), by = .(celltype)]
+.sum <- .dt[rr > rr.cutoff & `fwer` < .05, .(.N), by = .(celltype)]
 .avg <- mean(.sum$N)
 
 ggplot(.sum, aes(celltype, `N`)) +
@@ -145,7 +132,10 @@ ggplot(.dt, aes(`rr`, log10(`pve`))) +
 
 .feat <-
     .dt[order(-rr), head(.SD, 1), by = .(gene, celltype)] %>%
-    dcast(gene ~ celltype, value.var = "rr", fill = 0, fun.aggregate = max)
+    dcast(gene ~ celltype,
+          value.var = "rr",
+          fill = NA,
+          fun.aggregate = max)
 
 Z <- as.matrix(.feat[,-1])
 colnames(Z) <- colnames(.feat)[-1]
@@ -154,6 +144,7 @@ rownames(Z) <- unlist(.feat[,1])
 .file <- ".2a_cross_validation_gsea.txt.gz"
 
 if.needed(.file, {
+
     gsea.dt <- data.table()
 
     make.gs.lol <- function(.dt) {
@@ -176,8 +167,9 @@ if.needed(.file, {
     for(j in 1:ncol(Z)){
 
         .ct <- colnames(Z)[j]
-        .scores <- scale(Z[, j])
+        .scores <- unlist(scale(Z[, j]))
         names(.scores) <- rownames(Z)
+        .scores <- .scores[!is.na(.scores)]
 
         .gsea <- fgsea::fgsea(pathways = gs.lol,
                               stats = .scores,

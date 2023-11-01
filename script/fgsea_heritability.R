@@ -6,15 +6,6 @@ if(length(argv) < 2) q()
 in.file <- argv[1]
 out.file <- argv[2]
 
-###########################################################################
-## We call a gene common across multiple cell types if gene expression   ##
-## values are highly correlated with genetic variants > R.CUTOFF in more ##
-## than 100 * COMMON cell types                                          ##
-###########################################################################
-
-R.CUTOFF <- .1
-COMMON <- .5
-
 library(data.table)
 library(dplyr)
 
@@ -45,13 +36,6 @@ make.gs.lol <- function(.dt) {
 Z <- as.matrix(.feat[,-1])
 colnames(Z) <- colnames(.feat)[-1]
 rownames(Z) <- unlist(.feat[,1])
-
-##################
-## common genes ##
-##################
-
-z.obs <- apply(t(Z > R.CUTOFF), 2, mean, na.rm=T)
-Z[z.obs > COMMON, ] <- NA
 
 #########################
 ## Gene ontology words ##
