@@ -312,7 +312,7 @@ rule step4_run:
     input:
         expand("result/step4/{qtl}/PC{nPC}/{ld}.txt.gz",
                ld=range(1,1704),
-               qtl=["qtl","iqtl"],
+               qtl=["qtl","iqtl","mqtl"],
                nPC=[37, 70, 100]),
         expand("result/step4/{twas}/{gwas}/PC{nPC}/{ld}.txt.gz",
                ld=range(1,1704),
@@ -497,6 +497,17 @@ rule _step4_run_qtl:
     shell:
         "Rscript --vanilla script/call_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
 
+rule _step4_run_mqtl:
+    input:
+        ldfile="data/LD.info.txt",
+        expr="result/step3/log_mean.bed.gz",
+        svd="result/step3/svd.rds",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/mqtl/PC{nPC}/{ld}.txt.gz"
+    shell:
+        "Rscript --vanilla script/call_multi_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
+
 rule _step4_jobs_heritability:
     input:
         ldfile="data/LD.info.txt",
@@ -522,22 +533,19 @@ rule _step4_jobs_heritability:
 
 rule step5:
     input:
-        expand("result/step5/module/heritability_module_PC{nPC}.txt.gz", nPC = [37, 70, 100])
-##        expand("result/step5/fgsea/heritability_PC{nPC}.txt.gz", nPC = [37, 70, 100])
+        expand("result/step5/module/mqtl_zscore_PC{nPC}.txt.gz", nPC = [37, 70, 100])
 
 rule step5_dropbox:
     shell:
         "rsync -argv result/step5/module/* ~/Dropbox/Writing/AD430/1.Results/4.eQTL_modules/ --progress --exclude=\"*temp*\"; "
 
 rule _step5_module:
-    input:
-        herit = "result/step4/combined/ld_heritability_PC{nPC}.txt.gz",
-        expr = "result/step3/sum.bed.gz"
-    output:
-        "result/step5/module/heritability_module_PC{nPC}.txt.gz"        
-    shell: "Rscript --vanilla script/module_genes_heritability.R {input.herit} {input.expr} {output}"
+    threads: 16
+    input: "result/step4/combined/mqtl_PC{nPC}.vcf.gz"
+    output: "result/step5/module/mqtl_zscore_PC{nPC}.txt.gz"        
+    shell: "Rscript --vanilla script/module_genes_mqtl_zscore.R {input} {output}"
 
 rule _step5_fgsea:
-    input: "result/step4/combined/ld_heritability_PC{nPC}.txt.gz"
-    output: "result/step5/fgsea/heritability_PC{nPC}.txt.gz"
-    shell: "Rscript --vanilla script/fgsea_heritability.R {input} {output}"
+    input: "result/step4/combined/ld_mqtl_zscore_PC{nPC}.txt.gz"
+    output: "result/step5/fgsea/mqtl_zscore_PC{nPC}.txt.gz"
+    shell: "Rscript --vanilla script/fgsea_mqtl_zscore.R {input} {output}"

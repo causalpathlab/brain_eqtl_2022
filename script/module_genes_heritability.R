@@ -64,12 +64,18 @@ run.knn.umap <- function(.knn, .names,
                    to = c(.knn$tgt.index, .knn$src.index),
                    weight = c(.knn$weight, .knn$weight))
 
+    message("Sorting out pairs")
+
     .df <- .dt[`from` != `to`,
                .(weight=mean(weight)),
                by = .(from, to)] %>%
         as.data.frame()
 
+    message("Building a kNN graph object")
+
     G <- igraph::graph_from_data_frame(.df, directed=FALSE)
+
+    message("Resolving graph clusters")
 
     C <- list(modularity = 0)
     for(r in 1:nrepeat){
