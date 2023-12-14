@@ -25,14 +25,14 @@ rule step1_merge:
     output:
         expand("result/step1/merged.{ext}", ext=EXT)
     shell:
-        "Rscript script/merge_data.R result/step1/qc result/step1/merged"
+        "nice Rscript script/merge_data.R result/step1/qc result/step1/merged"
 
 rule step1_row_annotate_GRCh37:
     input: "result/step1/valid_features.txt.gz"
     output: "result/step1/features_annotated_GRCh37.txt.gz"
     shell:
         "mkdir -p result/step1/;"
-        "Rscript --vanilla script/annotate_genes_GRCh37.R {input} {output}"
+        "nice Rscript --vanilla script/annotate_genes_GRCh37.R {input} {output}"
 
 rule step1_row_qc:
     input:
@@ -46,12 +46,12 @@ rule step1_row_qc:
         data = "result/step1/temp/{sample}",
         out = "result/step1/qc/{sample}"
     shell:
-        "Rscript script/qc_row_mtx.R {input.valid} {params.data} {params.out}"
+        "nice Rscript script/qc_row_mtx.R {input.valid} {params.data} {params.out}"
 
 rule step1_glob_row:
     input: expand("result/step1/score/{sample}.rows.gz", sample=SAMPLES)
     output: "result/step1/valid_features.txt.gz"
-    shell: "mkdir -p result/step1; Rscript script/test_qc_rows.R result/step1/score {output}"
+    shell: "mkdir -p result/step1; nice Rscript script/test_qc_rows.R result/step1/score {output}"
 
 rule step1_score:
     input:
@@ -64,7 +64,7 @@ rule step1_score:
         col = "result/step1/score/{sample}.cols.gz"
     shell:
         "mkdir -p result/step1/score;"
-        "Rscript --vanilla script/qc_score.R {params.prefix} {output.row} {output.col}"
+        "nice Rscript --vanilla script/qc_score.R {params.prefix} {output.row} {output.col}"
 
 #############################################################
 # consistently map by including ENSEMBL ID and HGNC symbols #
@@ -126,7 +126,7 @@ rule step2_simplify:
     output: "result/step2/celltypes.txt.gz"
     shell:
         "mkdir -p result/step2;"
-        "Rscript --vanilla script/simplify_celltype_file.R {input} {output}"
+        "nice Rscript --vanilla script/simplify_celltype_file.R {input} {output}"
 
 
 rule step2_sort_celltype:
@@ -137,7 +137,7 @@ rule step2_sort_celltype:
         mtx = "result/step2/sorted/{ct}.mtx.gz"
     shell:
         "mkdir -p result/step2/sorted;"
-        "Rscript --vanilla script/select_celltype_mtx.R {input.mtx} {input.annot} {wildcards.ct} {output.mtx}"
+        "nice Rscript --vanilla script/select_celltype_mtx.R {input.mtx} {input.annot} {wildcards.ct} {output.mtx}"
 
 #####################################################
 # Step 3. Combine cells and create pseudo-bulk data #
@@ -158,7 +158,7 @@ rule step3_pb_celltype:
         "result/step3/pb/{ct}.rds"
     shell:
         "mkdir -p result/step3/pb/;"
-        "Rscript --vanilla script/pseudobulk.R {input.mtx} {output}"
+        "nice Rscript --vanilla script/pseudobulk.R {input.mtx} {output}"
 
 rule step3_pb_concat:
     input:
@@ -171,7 +171,7 @@ rule step3_pb_concat:
 
     shell:
         "mkdir -p result/step3/;"
-        "Rscript --vanilla script/pseudobulk_concatenate.R {input.feat} {output.sum} {output.mean}"
+        "nice Rscript --vanilla script/pseudobulk_concatenate.R {input.feat} {output.sum} {output.mean}"
 
 rule step3_svd:
     input:
@@ -180,7 +180,7 @@ rule step3_svd:
         "result/step3/svd.rds"
     shell:
         "mkdir -p result/step3/;"
-        "Rscript --vanilla script/pseudobulk_svd.R {input} {output}"
+        "nice Rscript --vanilla script/pseudobulk_svd.R {input} {output}"
 
 rule step3_svd_assoc:
     input:
@@ -190,7 +190,7 @@ rule step3_svd_assoc:
         "result/step3/svd_pheno_assoc.txt.gz"
     shell:
         "mkdir -p result/step3/;"
-        "Rscript --vanilla script/assoc_svd_pheno.R {input.svd} {input.pheno} {output}"
+        "nice Rscript --vanilla script/assoc_svd_pheno.R {input.svd} {input.pheno} {output}"
 
 rule rsync_step3_up:
     shell:
@@ -318,7 +318,20 @@ rule step4_run:
                ld=range(1,1704),
                twas=["twas","itwas","coloc"],
                gwas="AD",
+               nPC=[37, 70, 100]),
+        expand("result/step4/epgs/PC{nPC}/{ld}.txt.gz",
+               ld=range(1,1704),
                nPC=[37, 70, 100])
+
+rule _step4_run_epgs:
+    input:
+        ldfile="data/LD.info.txt",
+        qtl_dir="result/step4/qtl/",
+        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
+    output:
+        "result/step4/epgs/PC{nPC}/{ld}.txt.gz"
+    shell:
+        "nice Rscript --vanilla script/predict_epgs_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {output}"
 
 rule _step4_run_twas:
     input:
@@ -329,7 +342,7 @@ rule _step4_run_twas:
     output:
         "result/step4/twas/{gwas}/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_twas_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
+        "nice Rscript --vanilla script/call_twas_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
 
 rule _step4_run_itwas:
     input:
@@ -340,7 +353,7 @@ rule _step4_run_itwas:
     output:
         "result/step4/itwas/{gwas}/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_twas_conditional_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
+        "nice Rscript --vanilla script/call_twas_conditional_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
 
 rule _step4_run_coloc:
     input:
@@ -352,7 +365,7 @@ rule _step4_run_coloc:
     output:
         "result/step4/coloc/{gwas}/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_coloc_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
+        "nice Rscript --vanilla script/call_coloc_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
 
 rule _step4_jobs_twas:
     input:
@@ -446,7 +459,7 @@ rule _step4_run_iqtl:
     output:
         "result/step4/iqtl/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_iqtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.herit} {input.svd} {input.pheno} {wildcards.nPC} {output}"
+        "nice Rscript --vanilla script/call_iqtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.herit} {input.svd} {input.pheno} {wildcards.nPC} {output}"
 
 rule _step4_jobs_qtl:
     input:
@@ -495,7 +508,7 @@ rule _step4_run_qtl:
     output:
         "result/step4/qtl/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
+        "nice Rscript --vanilla script/call_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
 
 rule _step4_run_mqtl:
     input:
@@ -506,7 +519,7 @@ rule _step4_run_mqtl:
     output:
         "result/step4/mqtl/PC{nPC}/{ld}.txt.gz"
     shell:
-        "Rscript --vanilla script/call_multi_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
+        "nice Rscript --vanilla script/call_multi_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {wildcards.nPC} {output}"
 
 rule _step4_jobs_heritability:
     input:
@@ -543,9 +556,9 @@ rule _step5_module:
     threads: 16
     input: "result/step4/combined/mqtl_PC{nPC}.vcf.gz"
     output: "result/step5/module/mqtl_zscore_PC{nPC}.txt.gz"        
-    shell: "Rscript --vanilla script/module_genes_mqtl_zscore.R {input} {output}"
+    shell: "nice Rscript --vanilla script/module_genes_mqtl_zscore.R {input} {output}"
 
 rule _step5_fgsea:
     input: "result/step4/combined/ld_mqtl_zscore_PC{nPC}.txt.gz"
     output: "result/step5/fgsea/mqtl_zscore_PC{nPC}.txt.gz"
-    shell: "Rscript --vanilla script/fgsea_mqtl_zscore.R {input} {output}"
+    shell: "nice Rscript --vanilla script/fgsea_mqtl_zscore.R {input} {output}"
