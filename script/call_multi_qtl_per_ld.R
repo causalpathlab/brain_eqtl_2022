@@ -21,7 +21,7 @@ out.file <- argv[7]
 
 PV <- 1e-4   # p-value
 ALPHA <- 0.1 # PIP cutoff
-LFSR <- .05  # local false sign range
+LFSR <- .2  # local false sign range
 
 ################################################################
 
@@ -30,156 +30,7 @@ library(dplyr)
 library(reshape2)
 library(rsvd)
 
-`%&%` <- function(a,b) paste0(a,b)
-
-subset.plink <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
-
-    .error <- function(e) {
-        print(e)
-        cat("Failed to read plink!\n", file=stderr())
-        return(NULL)
-    }
-
-    dir.create(temp.dir, recursive=TRUE, showWarnings=FALSE)
-
-    .subset <- function(plink.hdr, chr, plink.lb, plink.ub, temp.dir) {
-
-        chr.num <- as.integer(gsub(pattern="chr", replacement="", chr))
-
-        plink.cmd <- sprintf("./bin/plink --bfile %s --make-bed --geno 0.05 --maf 0.05 --hwe 1e-4 --chr %d --from-bp %d --to-bp %d --out %s",
-                             plink.hdr, chr.num, plink.lb, plink.ub, paste0(temp.dir, "/plink"))
-        system(plink.cmd)
-
-        unlink(paste0(temp.dir, "/plink.bk"))
-        .bed <- bigsnpr::snp_readBed(paste0(temp.dir, "/plink.bed"))
-        plink <- bigsnpr::snp_attach(.bed)
-        ret <- list(bed=plink$genotypes[,],
-                    fam=plink$fam,
-                    map=plink$map)
-        unlink(paste0(temp.dir, "/plink.bk"))
-        return(ret)
-    }
-
-    plink <- tryCatch(.subset(plink.hdr, chr, plink.lb, plink.ub, temp.dir),
-                      error=.error)
-    return(plink)
-}
-
-.safe.lm <- function(Y, C){
-    Y.resid <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
-    Y.fitted <- matrix(NA, nrow=nrow(Y), ncol=ncol(Y))
-    for(j in 1:ncol(Y)){
-        .lm <- lm(Y[, j] ~ C, na.action = "na.exclude")
-        Y.resid[,j] <- residuals(.lm)
-        Y.fitted[,j] <- fitted(.lm)
-    }
-    rownames(Y.resid) <- rownames(Y)
-    rownames(Y.fitted) <- rownames(Y)
-    colnames(Y.resid) <- colnames(Y)
-    colnames(Y.fitted) <- colnames(Y)
-    list(fitted = Y.fitted, residuals = Y.resid)
-}
-
-match.with.plink <- function(Y, plink){
-
-    .y.info <- data.table(projid = as.integer(rownames(Y)))
-    .y.info[, y.row := 1:.N]
-
-    .match <-
-        plink$fam %>%
-        mutate(projid = as.integer(sample.ID)) %>%
-        mutate(x.row = 1:n()) %>%
-        left_join(.y.info, by = "projid") %>%
-        na.omit()
-
-    X <- plink$bed
-
-    ret <- list(x = X[.match$x.row, , drop = FALSE],
-                y = Y[.match$y.row, , drop = FALSE])
-
-    return(ret)
-}
-
-crop.plink.cis <- function(plink, tss, tes, cis){
-    ret <- plink
-
-    .valid <- which(plink$map$physical.pos >= (tss - cis) &
-                    plink$map$physical.pos <= (tes + cis))
-
-    ret$map <- ret$map[.valid,]
-    ret$bed <- ret$bed[, .valid, drop = F]
-
-    return(ret)
-}
-
-take.marginal.stat <- function(xx, yy, se.min=1e-8) {
-    .xx <- apply(xx, 2, scale)
-    .yy <- apply(yy, 2, scale)
-    rm.na.zero <- function(xx) {
-        return(replace(xx, is.na(xx), 0))
-    }
-    n.obs <- crossprod(!is.na(.xx), !is.na(.yy))
-    beta.mat <- crossprod(rm.na.zero(.xx), rm.na.zero(.yy))/n.obs
-    ## calibrate residuals
-    resid.se.mat <- matrix(NA, ncol(.xx), ncol(.yy))
-    for (k in 1:ncol(.yy)) {
-        beta.k <- beta.mat[, k]
-        yy.k <- .yy[, k]
-        err.k <- sweep(sweep(.xx, 2, beta.k, `*`), 1, yy.k, `-`)
-        se.k <- apply(err.k, 2, sd, na.rm = TRUE)
-        resid.se.mat[, k] <- se.k + se.min
-    }
-    y.cols <- 1:ncol(yy)
-    colnames(beta.mat) <- y.cols
-    colnames(n.obs) <- y.cols
-    colnames(resid.se.mat) <- y.cols
-    rownames(resid.se.mat) <- rownames(beta.mat)
-    ## combine the results
-    .melt.mat <- function(.mat, ...) {
-        rownames(.mat) <- 1:nrow(.mat)
-        colnames(.mat) <- 1:ncol(.mat)
-        reshape2::melt(.mat, ...) %>%
-            dplyr::rename(x.col = Var1, y.col = Var2) %>%
-            as.data.table()
-    }
-    zscore.pvalue <- function(z) {
-        2*pnorm(abs(z), lower.tail = FALSE)
-    }
-    beta.dt <- .melt.mat(beta.mat, value.name = "beta")
-    resid.se.dt <- .melt.mat(resid.se.mat, value.name = "resid.se")
-    nobs.dt <- .melt.mat(n.obs, value.name = "n")
-    out <- beta.dt %>%
-        left_join(nobs.dt, by = c("x.col", "y.col")) %>%
-        left_join(resid.se.dt, by = c("x.col", "y.col")) %>%
-        dplyr::mutate(se = resid.se/sqrt(n)) %>%
-        dplyr::mutate(p.val = zscore.pvalue(beta/se)) %>%
-        dplyr::mutate(beta = round(beta, 4)) %>%
-        dplyr::select(-resid.se) %>%
-        dplyr::mutate(se = round(se, 4)) %>%
-        dplyr::mutate(x.col = as.integer(x.col)) %>%
-        dplyr::mutate(y.col = as.integer(y.col)) %>%
-        as.data.table()
-
-    return(out)
-}
-
-.quantile.norm <- function(.mat) {
-    stopifnot(is.matrix(.mat))
-    ret <- .mat
-    for(k in 1:ncol(ret)){
-        x.k <- .mat[, k]
-        .pos.k <- which(is.finite(x.k))
-        x.k.valid <- x.k[.pos.k]
-        ngenes <- length(x.k.valid)
-        if(ngenes < 1) next
-        qq <- qnorm((1:ngenes)/(ngenes + 1))
-        x.k.valid[order(x.k.valid)] <- qq
-        ret[.pos.k, k] <- x.k.valid
-    }
-    rownames(ret) <- rownames(.mat)
-    colnames(ret) <- colnames(.mat)
-    return(ret)
-}
+source("Util.R")
 
 ################################################################
 
@@ -222,7 +73,6 @@ for(g in genes){
     y.ct <- .temp$celltype
     Y <- as.matrix(t(.temp[, -(1:6)]))
     colnames(Y) <- y.ct
-    Y <- .quantile.norm(Y)
 
     observed <- apply(!is.na(Y), 2, mean)
     if(sum(observed >= .10) < 1) next
@@ -233,7 +83,7 @@ for(g in genes){
                    MARGIN = 2,
                    FUN = scale)
 
-    .lm <- .safe.lm(Y, covar)
+    .lm <- safe.lm(Y, covar)
 
     plink.cis <- crop.plink.cis(plink, tss, tes, cis.dist)
 
@@ -260,14 +110,16 @@ for(g in genes){
     ## fine-mapping ##
     ##################
 
+    .data$y <- apply(.data$y, 2, scale)
+    .data$x <- apply(.data$x, 2, scale)
+
     .data$x[!is.finite(.data$x)] <- NA
     .data$y[!is.finite(.data$y)] <- NA
 
     ## Intersection with the multi-trait fine-mapping
     mtsusie <- mtSusie::mt_susie(X = .data$x,
                                  Y = .data$y,
-                                 L = 30,
-                                 clamp = 8,
+                                 L = 15,
                                  tol = 1e-8,
                                  prior.var = .01,
                                  coverage = .95)
@@ -284,8 +136,8 @@ for(g in genes){
 
     .out <- 
         as.data.frame(susie.dt) %>% 
-        dplyr::rename(x.col = variants) %>%
-        dplyr::rename(y.col = traits) %>%
+        dplyr::rename(x.col = variant) %>%
+        dplyr::rename(y.col = trait) %>%
         dplyr::left_join(x.dt, by="x.col") %>%
         dplyr::left_join(y.dt, by="y.col") %>%
         dplyr::left_join(marg.stat) %>% 
@@ -315,7 +167,7 @@ if(nrow(output) < 1){
 
     out.dt <-
         output %>%
-        dplyr::select(`chromosome`, `physical.pos`, `levels`,
+        dplyr::select(`chromosome`, `physical.pos`, `level`,
                       `gene`, `celltype`,
                       `alpha`, `mean`, `sd`, `lbf`, `z`, `lodds`, `lfsr`,
                       `beta`, `se`, `n`, `p.val`) %>%
