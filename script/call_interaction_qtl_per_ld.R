@@ -138,7 +138,7 @@ for(g in genes){
                                 L.x = 1,
                                 L.w = 1,
                                 prior.var = .01,
-                                coverge == .95)
+                                coverge = .95)
 
     susie.inter.dt <- setDT(susie.inter$cs)
 
