@@ -124,7 +124,7 @@ for(g in genes){
 
     .data$y <- apply(.data$y, 2, scale)
     .data$x <- apply(.data$x, 2, scale)
-    .data$w <- apply(.data$w, 2, scale)
+    ## .data$w <- apply(.data$w, 2, scale) --> no need to scale
 
     .data$x[!is.finite(.data$x)] <- NA
     .data$y[!is.finite(.data$y)] <- NA
@@ -138,7 +138,7 @@ for(g in genes){
                                 L.x = 1,
                                 L.w = 1,
                                 prior.var = .01,
-                                coverge == .95)
+                                coverage = .95)
 
     susie.inter.dt <- setDT(susie.inter$cs)
 
