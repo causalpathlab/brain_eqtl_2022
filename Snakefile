@@ -201,18 +201,20 @@ rule rsync_step3_up:
 #######################
 
 ## list(range(10,50,5)) + list(range(50,101,20)) + [100]
-COVAR_PCs = list(range(10,50)) + list(range(50,101,10)) + [100]
+COVAR_SEARCH_PCs = list(range(10,50)) + list(range(50,101,10)) + [100]
 
 rule step4:
     input:
         expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"]),
-        expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_PCs),
+        expand("result/step4/combined/ld_heritability_PC{pc}.txt.gz", pc=COVAR_SEARCH_PCs),
         expand("result/step4/combined/qtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
         expand("result/step4/combined/iqtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
         expand("result/step4/combined/mqtl_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], ext=["",".tbi"]),
         expand("result/step4/combined/ld_twas_{gwas}_PC{pc}.txt.gz", pc=[37, 70, 100], gwas=["AD"]),
         expand("result/step4/combined/ld_itwas_{gwas}_PC{pc}.txt.gz", pc=[37, 70, 100], gwas=["AD"]),
-        expand("result/step4/combined/coloc_{gwas}_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], gwas=["AD"], ext=["",".tbi"])
+        expand("result/step4/combined/coloc_{gwas}_PC{pc}.vcf.gz{ext}", pc=[37, 70, 100], gwas=["AD"], ext=["",".tbi"]),
+
+# expand("result/step4/combined/ld_epgs_PC{pc}.txt.gz", pc=[37, 70, 100])
 
 rule step4_dropbox:
     shell:
@@ -221,6 +223,8 @@ rule step4_dropbox:
         "rsync -argv result/step4/combined/*twas* ~/Dropbox/Writing/AD430/1.Results/3.eQTL/twas/ --progress --size-only; "
         "rsync -argv result/step4/combined/*coloc* ~/Dropbox/Writing/AD430/1.Results/3.eQTL/coloc/ --progress --size-only; "
         "echo \"Done\""
+
+# "rsync -argv result/step4/combined/*epgs* ~/Dropbox/Writing/AD430/1.Results/3.eQTL/epgs/ --progress --size-only; "
 
 ###############################
 # genotype Q/C and queue jobs #
@@ -282,7 +286,7 @@ rule step4_post_ld_jobs:
 
 rule step4_jobs:
     input:
-        expand("jobs/step4/heritability_{nPC}.sh",  nPC=COVAR_PCs),
+        expand("jobs/step4/heritability_{nPC}.sh",  nPC=COVAR_SEARCH_PCs),
         expand("jobs/step4/mqtl_{nPC}.sh",  nPC=[37, 70, 100]),
         expand("jobs/step4/qtl_{nPC}.sh",  nPC=[37, 70, 100]),
         expand("jobs/step4/iqtl_{nPC}.sh",  nPC=[37, 70, 100]),

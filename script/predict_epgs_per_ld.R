@@ -134,7 +134,10 @@ out.dt <- reshape2::melt(y.hat) %>%
 out.dt[, c("celltype","gene") := tstrsplit(`Var2`, split="_")]
 out.dt[, Var2 := NULL]
 
-out.dt <- out.dt %>% left_join(model.info)
+out.dt <-
+    out.dt %>%
+    (function(x) cbind(`ld` = ld.index, x)) %>% 
+    left_join(model.info)
 
-fwrite(out.dt, out.file)
+fwrite(out.dt, out.file, sep = "\t")
 message("done")
