@@ -10,19 +10,21 @@ options(stringsAsFactors = FALSE)
 ## maxK <- 37
 ## out.file <- "output.txt.gz"
 
-if(length(argv) < 7) q()
+if(length(argv) < 8) q()
+
 ld.index <- as.integer(argv[1])
 ld.file <- argv[2]
 geno.hdr <- argv[3]
 expr.file <- argv[4]
 svd.file <- argv[5]
-maxK <- as.integer(argv[6])
-out.file <- argv[7]
+pheno.file <- argv[6]
+maxK <- as.integer(argv[7])
+out.file <- argv[8]
 
 ################################################################
 
-ALPHA <- 0.1 # PIP cutoff
-LFSR <- .1  # local false sign range
+ALPHA <- 0.1 # PIP cutoff to keep
+LFSR <- .2   # local false sign range to keep
 
 ################################################################
 

@@ -408,7 +408,7 @@ rule _step4_jobs_iqtl:
             print_Rjob("iqtl",
                        "script/call_interaction_qtl_per_ld.R",
                        "result/step4/iqtl/PC" + wildcards.nPC,
-                       [input.ldfile, "result/step4/rosmap", input.expr, input.herit, input.svd, input.pheno, wildcards.nPC],
+                       [input.ldfile, "result/step4/rosmap", input.expr, input.svd, input.pheno, wildcards.nPC],
                        mem = 4096,
                        maxtime = "4:00:00")
 
@@ -423,7 +423,7 @@ rule _step4_run_iqtl:
     output:
         "result/step4/iqtl/PC{nPC}/{ld}.txt.gz"
     shell:
-        "nice Rscript --vanilla script/call_interaction_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.herit} {input.svd} {input.pheno} {wildcards.nPC} {output}"
+        "nice Rscript --vanilla script/call_interaction_qtl_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.expr} {input.svd} {input.pheno} {wildcards.nPC} {output}"
 
 rule _step4_jobs_qtl:
     input:
