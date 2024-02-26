@@ -348,17 +348,6 @@ rule _step4_run_twas:
     shell:
         "nice Rscript --vanilla script/call_twas_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
 
-rule _step4_run_itwas:
-    input:
-        ldfile="data/LD.info.txt",
-        qtl_dir="result/step4/iqtl/",
-        gwas_stat_dir="data/gwas",
-        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-    output:
-        "result/step4/itwas/{gwas}/PC{nPC}/{ld}.txt.gz"
-    shell:
-        "nice Rscript --vanilla script/call_twas_conditional_per_ld.R {wildcards.ld} {input.ldfile} result/step4/rosmap {input.qtl_dir}/PC{wildcards.nPC} {input.gwas_stat_dir}/{wildcards.gwas}.vcf.gz {output}"
-
 rule _step4_run_coloc:
     input:
         ldfile="data/LD.info.txt",
@@ -412,32 +401,13 @@ rule _step4_jobs_coloc:
                        mem=2048,
                        maxtime="4:00:00")
 
-rule _step4_jobs_itwas:
-    input:
-        ldfile="data/LD.info.txt",
-        qtl_dir="result/step4/iqtl/",
-        gwas_stat_dir="data/gwas",
-        geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
-    output:
-        queue="jobs/step4/itwas_{gwas}_{nPC}.sh"
-    run:
-        mkdir("jobs/step4")
-        with open(output.queue, "w") as fh:
-            sys.stdout = fh
-            print_Rjob("twas",
-                       "script/call_twas_conditional_per_ld.R",
-                       "result/step4/itwas/" + wildcards.gwas + "/PC" + wildcards.nPC,
-                       [input.ldfile, "result/step4/rosmap", input.qtl_dir + "/PC" + wildcards.nPC, input.gwas_stat_dir + "/" + wildcards.gwas + ".vcf.gz"],
-                       mem=2048,
-                       maxtime="4:00:00")
-
 rule _step4_jobs_iqtl:
     input:
         ldfile="data/LD.info.txt",
         expr="result/step3/log_mean.bed.gz",
         svd="result/step3/svd.rds",
         herit = "result/step4/heritability",
-        pheno = "data/metadata_PFC_all_individuals_092520.tsv.gz",
+        pheno = "data/metadata_selected.tsv.gz",
         geno=expand("result/step4/rosmap.{ext}", ext=["bed","bim","fam"])
     output:
         queue="jobs/step4/iqtl_{nPC}.sh"
@@ -446,10 +416,10 @@ rule _step4_jobs_iqtl:
         with open(output.queue, "w") as fh:
             sys.stdout = fh
             print_Rjob("iqtl",
-                       "script/call_iqtl_per_ld.R",
+                       "script/call_interaction_qtl_per_ld.R",
                        "result/step4/iqtl/PC" + wildcards.nPC,
                        [input.ldfile, "result/step4/rosmap", input.expr, input.herit, input.svd, input.pheno, wildcards.nPC],
-                       mem = 2048,
+                       mem = 4096,
                        maxtime = "4:00:00")
 
 rule _step4_run_iqtl:
