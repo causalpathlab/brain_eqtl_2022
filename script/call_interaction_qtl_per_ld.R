@@ -124,23 +124,34 @@ for(g in genes){
 
     .data$y <- apply(.data$y, 2, scale)
     .data$x <- apply(.data$x, 2, scale)
-    ## .data$w <- apply(.data$w, 2, scale) --> no need to scale
 
     .data$x[!is.finite(.data$x)] <- NA
     .data$y[!is.finite(.data$y)] <- NA
     .data$w[!is.finite(.data$w)] <- NA
 
-    susie.inter <- mtSusie::mt_susie_inter(
-                                X = as.matrix(.data$x),
-                                Y = as.matrix(.data$y),
-                                W = as.matrix(.data$w),
-                                L.wx = 15,
-                                L.x = 1,
-                                L.w = 1,
-                                prior.var = .01,
-                                coverage = .95)
+    susie.inter.dt <- data.table()
 
-    susie.inter.dt <- setDT(susie.inter$cs)
+    for(kk in 1:ncol(.data$w)){
+
+        w.k <- .data$w[, kk, drop = F]
+
+        .inter <- mtSusie::mt_susie_inter(
+                               X = as.matrix(.data$x),
+                               Y = as.matrix(.data$y),
+                               W = as.matrix(w.k),
+                               L.wx = 10,
+                               L.x = 10,
+                               L.w = 1,
+                               prior.var = .01,
+                               coverage = .95)        
+
+        .dt.inter <- setDT(.inter$cs.wx)
+        .dt.inter[, interaction := NULL]
+        .dt.inter[, w.col := kk]
+
+        susie.inter.dt <- rbind(susie.inter.dt, .dt.inter)
+        message("phenotype: [", kk, "] ", colnames(.data$w)[kk])
+    }
 
     if(nrow(susie.inter.dt) < 1) next
 
@@ -154,7 +165,6 @@ for(g in genes){
         as.data.frame(susie.inter.dt[variant %in% .valid.pos]) %>%
         dplyr::rename(x.col = variant) %>%
         dplyr::rename(y.col = trait) %>%
-        dplyr::rename(w.col = interaction) %>%
         dplyr::left_join(x.dt, by="x.col") %>%
         dplyr::left_join(y.dt, by="y.col") %>%
         dplyr::left_join(w.dt, by="w.col") %>%
